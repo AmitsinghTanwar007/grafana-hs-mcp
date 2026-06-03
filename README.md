@@ -11,6 +11,19 @@ Current MVP tools:
 
 ## Install For Local Testing
 
+Get the repo first:
+
+```bash
+git clone <repo-url> grafana-hs-mcp
+cd grafana-hs-mcp
+```
+
+For now, if you are using this machine, the repo already exists at:
+
+```bash
+cd ~/grafana-hs-mcp
+```
+
 From this repo:
 
 ```bash
@@ -57,6 +70,20 @@ grafana-hs-mcp doctor
 ```
 
 Expected output includes Grafana health plus datasource names.
+
+To inspect the effective config/env values in the terminal:
+
+```bash
+grafana-hs-mcp env
+```
+
+Interactive mode offers to run `doctor` after showing values:
+
+```bash
+grafana-hs-mcp env --interactive
+```
+
+Sensitive values like `GRAFANA_API_TOKEN` are masked by default.
 
 ## Run As MCP Server
 

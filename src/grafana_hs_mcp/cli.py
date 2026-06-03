@@ -54,8 +54,8 @@ def do_setup(args) -> None:
     profile_dir = Path(args.profile_dir).expanduser()
 
     if not args.skip_browser and not args.headless and not can_use_headed_browser():
-        print("No DISPLAY/WAYLAND_DISPLAY found, so a headed browser cannot open here.", file=sys.stderr)
-        print("Run this command on a desktop machine, or start an Xvfb display first.", file=sys.stderr)
+        print("No Linux DISPLAY/WAYLAND_DISPLAY found, so a headed browser cannot open here.", file=sys.stderr)
+        print("Run this command on a desktop Linux session, or start an Xvfb display first.", file=sys.stderr)
         print("Example: DISPLAY=:200 grafana-hs-mcp setup", file=sys.stderr)
         sys.exit(1)
 

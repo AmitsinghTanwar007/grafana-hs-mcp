@@ -195,4 +195,6 @@ def setup_profile(grafana_url: str, profile_dir: Path = PROFILE_DIR, headless: b
 
 
 def can_use_headed_browser() -> bool:
+    if sys.platform == "darwin" or sys.platform.startswith("win"):
+        return True
     return bool(os.getenv("DISPLAY") or os.getenv("WAYLAND_DISPLAY"))

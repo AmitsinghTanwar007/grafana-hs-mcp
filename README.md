@@ -31,20 +31,11 @@ grafana-hs-mcp update
 
 ## Add To opencode
 
-```json
-{
-  "$schema": "https://opencode.ai/config.json",
-  "mcp": {
-    "grafana": {
-      "type": "local",
-      "command": ["grafana-hs-mcp"],
-      "enabled": true
-    }
-  }
-}
+```bash
+grafana-hs-mcp configure-opencode
 ```
 
-Restart opencode after adding this.
+Restart opencode after running this.
 
 ## Try
 

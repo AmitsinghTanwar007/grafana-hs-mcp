@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import subprocess
@@ -10,11 +11,13 @@ from pathlib import Path
 from .auth import ensure_playwright_chromium, setup_profile
 from .config import Config, CONFIG_FILE, PROFILE_DIR, load_config, save_config
 from .grafana_client import GrafanaClient
-from .server import run as run_server
 
 
 DEFAULT_GRAFANA_URL = "https://grafana.internal.staging.in1.hyperswitch.net"
 REPO_URL = "git+https://github.com/AmitsinghTanwar007/grafana-hs-mcp.git"
+OPENCODE_CONFIG_FILE = Path(
+    os.getenv("OPENCODE_CONFIG_FILE", "~/.config/opencode/opencode.json")
+).expanduser()
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -35,6 +38,7 @@ def main(argv: list[str] | None = None) -> None:
     env_cmd.add_argument("--show-secrets", action="store_true", help="Show secret values instead of masking them")
 
     subparsers.add_parser("doctor", help="Verify config, auth, and Grafana access")
+    subparsers.add_parser("configure-opencode", help="Add grafana-hs-mcp to opencode MCP config")
     subparsers.add_parser("update", help="Update grafana-hs-mcp to the latest GitHub version")
     subparsers.add_parser("run", help="Run MCP server over stdio")
 
@@ -46,11 +50,15 @@ def main(argv: list[str] | None = None) -> None:
         do_env(args)
     elif args.command == "doctor":
         do_doctor()
+    elif args.command == "configure-opencode":
+        do_configure_opencode()
     elif args.command == "update":
         do_update()
     elif args.command == "run":
+        from .server import run as run_server
         run_server()
     else:
+        from .server import run as run_server
         run_server()
 
 
@@ -109,6 +117,34 @@ def do_update() -> None:
     print("Run: grafana-hs-mcp doctor")
 
 
+def do_configure_opencode() -> None:
+    OPENCODE_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    if OPENCODE_CONFIG_FILE.exists():
+        try:
+            data = json.loads(OPENCODE_CONFIG_FILE.read_text())
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(
+                f"Could not parse {OPENCODE_CONFIG_FILE}. "
+                "Please fix the JSON manually and run this command again."
+            ) from exc
+    else:
+        data = {}
+
+    data.setdefault("$schema", "https://opencode.ai/config.json")
+    mcp = data.setdefault("mcp", {})
+    mcp["grafana"] = {
+        "type": "local",
+        "command": ["grafana-hs-mcp"],
+        "enabled": True,
+    }
+
+    OPENCODE_CONFIG_FILE.write_text(json.dumps(data, indent=2) + "\n")
+    print(f"Updated opencode config: {OPENCODE_CONFIG_FILE}")
+    print()
+    print("Restart opencode for the MCP server to load.")
+    print("Then ask: List Grafana datasources.")
+
+
 def do_env(args) -> None:
     config_exists = CONFIG_FILE.exists()
     cfg = load_config() if config_exists or os.getenv("GRAFANA_URL") else None
@@ -156,6 +192,7 @@ def _print_env(cfg: Config | None, config_exists: bool, show_secrets: bool) -> N
     print("Useful commands:")
     print("  grafana-hs-mcp setup")
     print("  grafana-hs-mcp doctor")
+    print("  grafana-hs-mcp configure-opencode")
     print("  grafana-hs-mcp update")
     print("  grafana-hs-mcp run")
 

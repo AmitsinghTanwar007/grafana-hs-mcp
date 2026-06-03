@@ -18,7 +18,10 @@ The installer creates an isolated Python environment and makes the `grafana-hs-m
 
 ```bash
 grafana-hs-mcp env
+grafana-hs-mcp env --interactive
 ```
+
+Interactive mode lets you update saved config values from the terminal.
 
 ## Add To opencode
 

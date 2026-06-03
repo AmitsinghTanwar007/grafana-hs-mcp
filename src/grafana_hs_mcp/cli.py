@@ -29,7 +29,7 @@ def main(argv: list[str] | None = None) -> None:
     setup_cmd.add_argument("--headless", action="store_true", help="Run browser headless; useful only if profile is already valid")
 
     env_cmd = subparsers.add_parser("env", help="Show effective config/env values")
-    env_cmd.add_argument("--interactive", "-i", action="store_true", help="Pause and offer to run doctor")
+    env_cmd.add_argument("--interactive", "-i", action="store_true", help="Show config, offer edits, then optionally run doctor")
     env_cmd.add_argument("--show-secrets", action="store_true", help="Show secret values instead of masking them")
 
     subparsers.add_parser("doctor", help="Verify config, auth, and Grafana access")
@@ -94,13 +94,34 @@ def do_env(args) -> None:
     config_exists = CONFIG_FILE.exists()
     cfg = load_config() if config_exists or os.getenv("GRAFANA_URL") else None
 
+    _print_env(cfg, config_exists, args.show_secrets)
+
+    if args.interactive:
+        print()
+        answer = input("Update saved config values? [y/N]: ").strip().lower()
+        if answer in {"y", "yes"}:
+            cfg = _prompt_config(cfg)
+            save_config(cfg)
+            config_exists = True
+            print(f"Saved config: {CONFIG_FILE}")
+            print()
+            _print_env(cfg, config_exists, args.show_secrets)
+
+        print()
+        answer = input("Run doctor now? [y/N]: ").strip().lower()
+        if answer in {"y", "yes"}:
+            do_doctor()
+
+
+def _print_env(cfg: Config | None, config_exists: bool, show_secrets: bool) -> None:
+
     rows = [
         ("Config file", str(CONFIG_FILE), "exists" if config_exists else "missing"),
         ("GRAFANA_HS_MCP_HOME", os.getenv("GRAFANA_HS_MCP_HOME", ""), "env" if os.getenv("GRAFANA_HS_MCP_HOME") else "default"),
         ("GRAFANA_URL", cfg.grafana_url if cfg else "", _source("GRAFANA_URL", config_exists)),
         ("GRAFANA_LOKI_DATASOURCE_UID", cfg.loki_datasource_uid if cfg else "", _source("GRAFANA_LOKI_DATASOURCE_UID", config_exists)),
         ("GRAFANA_HS_MCP_PROFILE_DIR", str(cfg.profile_dir) if cfg else str(PROFILE_DIR), _source("GRAFANA_HS_MCP_PROFILE_DIR", config_exists)),
-        ("GRAFANA_API_TOKEN", _secret(os.getenv("GRAFANA_API_TOKEN"), args.show_secrets), "env" if os.getenv("GRAFANA_API_TOKEN") else "not set"),
+        ("GRAFANA_API_TOKEN", _secret(os.getenv("GRAFANA_API_TOKEN"), show_secrets), "env" if os.getenv("GRAFANA_API_TOKEN") else "not set"),
         ("DISPLAY", os.getenv("DISPLAY", ""), "env" if os.getenv("DISPLAY") else "not set"),
         ("WAYLAND_DISPLAY", os.getenv("WAYLAND_DISPLAY", ""), "env" if os.getenv("WAYLAND_DISPLAY") else "not set"),
         ("Profile exists", "yes" if cfg and cfg.profile_dir.exists() else "no", str(cfg.profile_dir if cfg else PROFILE_DIR)),
@@ -118,11 +139,29 @@ def do_env(args) -> None:
     print("  grafana-hs-mcp doctor")
     print("  grafana-hs-mcp run")
 
-    if args.interactive:
-        print()
-        answer = input("Run doctor now? [y/N]: ").strip().lower()
-        if answer in {"y", "yes"}:
-            do_doctor()
+
+
+def _prompt_config(cfg: Config | None) -> Config:
+    current_url = cfg.grafana_url if cfg else DEFAULT_GRAFANA_URL
+    current_loki_uid = cfg.loki_datasource_uid if cfg else "loki"
+    current_profile_dir = cfg.profile_dir if cfg else PROFILE_DIR
+
+    print()
+    print("Update config values. Press Enter to keep the current value.")
+
+    grafana_url = input(f"Grafana URL [{current_url}]: ").strip() or current_url
+    loki_uid = input(f"Loki datasource UID [{current_loki_uid}]: ").strip() or current_loki_uid
+    profile_dir_raw = input(f"Playwright profile dir [{current_profile_dir}]: ").strip()
+    profile_dir = Path(profile_dir_raw).expanduser() if profile_dir_raw else current_profile_dir
+
+    print()
+    print("Note: GRAFANA_API_TOKEN is not saved here. Set it as an environment variable if needed.")
+
+    return Config(
+        grafana_url=grafana_url.rstrip("/"),
+        loki_datasource_uid=loki_uid,
+        profile_dir=profile_dir,
+    )
 
 
 def _source(env_name: str, has_config: bool) -> str:

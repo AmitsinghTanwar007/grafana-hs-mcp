@@ -3,6 +3,8 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import subprocess
+import sys
 from pathlib import Path
 
 from .auth import ensure_playwright_chromium, setup_profile
@@ -12,6 +14,7 @@ from .server import run as run_server
 
 
 DEFAULT_GRAFANA_URL = "https://grafana.internal.staging.in1.hyperswitch.net"
+REPO_URL = "git+https://github.com/AmitsinghTanwar007/grafana-hs-mcp.git"
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -32,6 +35,7 @@ def main(argv: list[str] | None = None) -> None:
     env_cmd.add_argument("--show-secrets", action="store_true", help="Show secret values instead of masking them")
 
     subparsers.add_parser("doctor", help="Verify config, auth, and Grafana access")
+    subparsers.add_parser("update", help="Update grafana-hs-mcp to the latest GitHub version")
     subparsers.add_parser("run", help="Run MCP server over stdio")
 
     args = parser.parse_args(argv)
@@ -42,6 +46,8 @@ def main(argv: list[str] | None = None) -> None:
         do_env(args)
     elif args.command == "doctor":
         do_doctor()
+    elif args.command == "update":
+        do_update()
     elif args.command == "run":
         run_server()
     else:
@@ -81,6 +87,17 @@ def do_doctor() -> None:
             print(f"  - {ds.get('name')} ({ds.get('type')}) uid={ds.get('uid')}")
     finally:
         client.stop_heartbeat()
+
+
+def do_update() -> None:
+    print("Updating grafana-hs-mcp...")
+    subprocess.run(
+        [sys.executable, "-m", "pip", "install", "--upgrade", REPO_URL],
+        check=True,
+    )
+    print()
+    print("grafana-hs-mcp updated successfully")
+    print("Run: grafana-hs-mcp doctor")
 
 
 def do_env(args) -> None:
@@ -130,6 +147,7 @@ def _print_env(cfg: Config | None, config_exists: bool, show_secrets: bool) -> N
     print("Useful commands:")
     print("  grafana-hs-mcp setup")
     print("  grafana-hs-mcp doctor")
+    print("  grafana-hs-mcp update")
     print("  grafana-hs-mcp run")
 
 

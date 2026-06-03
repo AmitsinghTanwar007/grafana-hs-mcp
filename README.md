@@ -23,6 +23,12 @@ grafana-hs-mcp env --interactive
 
 Interactive mode lets you update saved config values from the terminal.
 
+## Update
+
+```bash
+grafana-hs-mcp update
+```
+
 ## Add To opencode
 
 ```json

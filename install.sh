@@ -23,7 +23,7 @@ pick_bin_dir() {
 
 ensure_path_hint() {
   case ":$PATH:" in
-    *":$BIN_DIR:"*) return ;;
+    *":$BIN_DIR:"*) return 0 ;;
   esac
 
   shell_name="$(basename "${SHELL:-}")"
@@ -41,6 +41,22 @@ ensure_path_hint() {
   echo "$BIN_DIR was added to $rc_file."
   echo "Open a new terminal, or run:"
   echo "  export PATH=\"$BIN_DIR:\$PATH\""
+  return 1
+}
+
+print_welcome() {
+  echo
+  echo "grafana-hs-mcp installed successfully"
+  echo
+  echo "Available commands:"
+  echo "  grafana-hs-mcp setup             Configure Grafana login"
+  echo "  grafana-hs-mcp doctor            Verify Grafana access"
+  echo "  grafana-hs-mcp env               Show config values"
+  echo "  grafana-hs-mcp env --interactive Edit config values"
+  echo
+  echo "Next step:"
+  echo "  grafana-hs-mcp setup"
+  echo
 }
 
 if ! command -v python3 >/dev/null 2>&1; then
@@ -69,21 +85,5 @@ echo
 echo "Installed grafana-hs-mcp"
 echo "Binary: $BIN_DIR/grafana-hs-mcp"
 echo
-ensure_path_hint
-echo
-
-case ":$PATH:" in
-  *":$BIN_DIR:"*)
-    echo "Run: grafana-hs-mcp setup"
-    ;;
-  *)
-    echo "$BIN_DIR is not in your PATH."
-    echo
-    echo "Run this once, then run setup:"
-    echo "  export PATH=\"$BIN_DIR:\$PATH\""
-    echo "  grafana-hs-mcp setup"
-    echo
-    echo "To make it permanent, add this to your shell rc file:"
-    echo "  export PATH=\"$BIN_DIR:\$PATH\""
-    ;;
-esac
+ensure_path_hint || true
+print_welcome

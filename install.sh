@@ -5,6 +5,11 @@ REPO_URL="git+https://github.com/AmitsinghTanwar007/grafana-hs-mcp.git"
 APP_HOME="${GRAFANA_HS_MCP_INSTALL_HOME:-$HOME/.grafana-hs-mcp/app}"
 VENV_DIR="$APP_HOME/venv"
 
+step() {
+  echo
+  echo "[$1/5] $2"
+}
+
 pick_bin_dir() {
   if [ -n "${GRAFANA_HS_MCP_BIN_DIR:-}" ]; then
     echo "$GRAFANA_HS_MCP_BIN_DIR"
@@ -59,11 +64,16 @@ print_welcome() {
   echo
 }
 
+echo
+echo "Installing grafana-hs-mcp..."
+
+step 1 "Checking python3"
 if ! command -v python3 >/dev/null 2>&1; then
   echo "python3 is required but was not found."
   exit 1
 fi
 
+step 2 "Creating isolated environment"
 BIN_DIR="$(pick_bin_dir)"
 mkdir -p "$APP_HOME" "$BIN_DIR"
 
@@ -76,12 +86,14 @@ if [ ! -d "$VENV_DIR" ]; then
   fi
 fi
 
+step 3 "Installing grafana-hs-mcp"
 "$VENV_DIR/bin/python" -m pip install --upgrade pip >/dev/null
 "$VENV_DIR/bin/python" -m pip install --upgrade "$REPO_URL"
 
+step 4 "Creating command"
 ln -sf "$VENV_DIR/bin/grafana-hs-mcp" "$BIN_DIR/grafana-hs-mcp"
 
-echo
+step 5 "Ready"
 echo "Installed grafana-hs-mcp"
 echo "Binary: $BIN_DIR/grafana-hs-mcp"
 echo

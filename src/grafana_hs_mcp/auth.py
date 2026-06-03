@@ -27,23 +27,34 @@ def find_system_chrome() -> Path | None:
 
     candidates: list[str | Path] = []
     if sys.platform == "darwin":
-        candidates.extend([
-            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-            "/Applications/Chromium.app/Contents/MacOS/Chromium",
-            Path.home() / "Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-        ])
+        candidates.extend(
+            [
+                "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+                "/Applications/Chromium.app/Contents/MacOS/Chromium",
+                Path.home()
+                / "Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+            ]
+        )
     elif sys.platform.startswith("linux"):
-        candidates.extend(["google-chrome", "google-chrome-stable", "chromium", "chromium-browser"])
+        candidates.extend(
+            ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser"]
+        )
     elif sys.platform.startswith("win"):
         local_appdata = os.getenv("LOCALAPPDATA", "")
         program_files = os.getenv("PROGRAMFILES", "")
-        candidates.extend([
-            Path(program_files) / "Google/Chrome/Application/chrome.exe",
-            Path(local_appdata) / "Google/Chrome/Application/chrome.exe",
-        ])
+        candidates.extend(
+            [
+                Path(program_files) / "Google/Chrome/Application/chrome.exe",
+                Path(local_appdata) / "Google/Chrome/Application/chrome.exe",
+            ]
+        )
 
     for candidate in candidates:
-        path = shutil.which(str(candidate)) if not str(candidate).startswith("/") else str(candidate)
+        path = (
+            shutil.which(str(candidate))
+            if not str(candidate).startswith("/")
+            else str(candidate)
+        )
         if path and Path(path).exists():
             return Path(path)
     return None
@@ -58,15 +69,25 @@ def ensure_playwright_chromium(interactive: bool = True) -> None:
     setup so users do not need to remember `playwright install chromium`.
     """
     if os.getenv("GRAFANA_HS_MCP_SKIP_BROWSER_INSTALL"):
-        logger.info("Skipping Playwright browser install due to GRAFANA_HS_MCP_SKIP_BROWSER_INSTALL")
+        logger.info(
+            "Skipping Playwright browser install due to GRAFANA_HS_MCP_SKIP_BROWSER_INSTALL"
+        )
         return
 
     if find_system_chrome():
-        logger.info("Using system Chrome/Chromium; Playwright browser download not needed")
+        logger.info(
+            "Using system Chrome/Chromium; Playwright browser download not needed"
+        )
         return
 
     if interactive:
-        answer = input("No system Chrome/Chromium found. Download Playwright Chromium (~300-450 MB)? [Y/n]: ").strip().lower()
+        answer = (
+            input(
+                "No system Chrome/Chromium found. Download Playwright Chromium (~300-450 MB)? [Y/n]: "
+            )
+            .strip()
+            .lower()
+        )
         if answer in {"n", "no"}:
             raise RuntimeError(
                 "No browser available. Install Google Chrome/Chromium or rerun setup and allow the download."
@@ -117,7 +138,9 @@ class AuthManager:
                 continue
             name, _, value = part.partition("=")
             self.session.cookies.set(name.strip(), value.strip(), domain=domain)
-        logger.debug("Seeded Grafana session with %d cookies", len(self.session.cookies))
+        logger.debug(
+            "Seeded Grafana session with %d cookies", len(self.session.cookies)
+        )
 
     def get_fresh_cookie(self, headless: bool = True) -> Optional[str]:
         try:
@@ -142,7 +165,11 @@ class AuthManager:
             )
             page = context.new_page()
             try:
-                page.goto(self.config.grafana_url, timeout=NAV_TIMEOUT_MS, wait_until="domcontentloaded")
+                page.goto(
+                    self.config.grafana_url,
+                    timeout=NAV_TIMEOUT_MS,
+                    wait_until="domcontentloaded",
+                )
                 page.wait_for_timeout(2_000)
 
                 if "/login" in page.url:
@@ -163,16 +190,24 @@ class AuthManager:
                         )
                     except PlaywrightTimeoutError:
                         self._save_debug_screenshot(page)
-                        logger.error("Google session expired. Re-run `grafana-hs-mcp setup`.")
+                        logger.error(
+                            "Google session expired. Re-run `grafana-hs-mcp setup`."
+                        )
                         return None
 
                 page.wait_for_timeout(SETTLE_TIMEOUT_MS)
                 cookies = context.cookies()
-                session = next((c for c in cookies if c["name"] == "grafana_session"), None)
-                expiry = next((c for c in cookies if c["name"] == "grafana_session_expiry"), None)
+                session = next(
+                    (c for c in cookies if c["name"] == "grafana_session"), None
+                )
+                expiry = next(
+                    (c for c in cookies if c["name"] == "grafana_session_expiry"), None
+                )
                 if not session:
                     self._save_debug_screenshot(page)
-                    logger.error("grafana_session cookie not found. Current URL: %s", page.url)
+                    logger.error(
+                        "grafana_session cookie not found. Current URL: %s", page.url
+                    )
                     return None
 
                 cookie = f"grafana_session={session['value']}"
@@ -192,7 +227,9 @@ class AuthManager:
             pass
 
 
-def setup_profile(grafana_url: str, profile_dir: Path = PROFILE_DIR, headless: bool = False) -> None:
+def setup_profile(
+    grafana_url: str, profile_dir: Path = PROFILE_DIR, headless: bool = False
+) -> None:
     try:
         from playwright.sync_api import sync_playwright
     except ImportError as exc:
@@ -211,7 +248,11 @@ def setup_profile(grafana_url: str, profile_dir: Path = PROFILE_DIR, headless: b
             **launch_kwargs,
         )
         page = context.new_page()
-        page.goto(grafana_url.rstrip("/"), timeout=NAV_TIMEOUT_MS, wait_until="domcontentloaded")
+        page.goto(
+            grafana_url.rstrip("/"),
+            timeout=NAV_TIMEOUT_MS,
+            wait_until="domcontentloaded",
+        )
 
         print("\nComplete Grafana Google SSO login in the browser window.")
         print("After Grafana dashboard loads, return here and press Enter.\n")
@@ -222,7 +263,9 @@ def setup_profile(grafana_url: str, profile_dir: Path = PROFILE_DIR, headless: b
         context.close()
 
     if not has_session:
-        raise RuntimeError("Grafana session cookie not found. Login may not have completed.")
+        raise RuntimeError(
+            "Grafana session cookie not found. Login may not have completed."
+        )
 
 
 def can_use_headed_browser() -> bool:

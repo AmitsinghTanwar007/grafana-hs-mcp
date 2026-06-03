@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 import threading
-import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -13,6 +12,29 @@ from .config import Config
 
 
 logger = logging.getLogger(__name__)
+
+_BLOCKED_SQL_KEYWORDS = {
+    "insert",
+    "update",
+    "delete",
+    "drop",
+    "truncate",
+    "alter",
+    "create",
+    "replace",
+    "grant",
+    "revoke",
+}
+
+
+def _assert_select_only(sql: str) -> None:
+    """Reject any SQL that is not a read-only SELECT statement."""
+    first_word = sql.strip().split()[0].lower() if sql.strip() else ""
+    if first_word in _BLOCKED_SQL_KEYWORDS:
+        raise ValueError(
+            f"Only SELECT queries are allowed. Got: {first_word.upper()}. "
+            "query_postgres is read-only for safety."
+        )
 
 
 class GrafanaClient:
@@ -46,7 +68,9 @@ class GrafanaClient:
         timeout = kwargs.pop("timeout", 30)
         response = self.session.request(method, url, timeout=timeout, **kwargs)
         if response.status_code in (401, 403):
-            logger.warning("Grafana returned %s; trying silent re-auth", response.status_code)
+            logger.warning(
+                "Grafana returned %s; trying silent re-auth", response.status_code
+            )
             if self.auth.refresh_after_401():
                 response = self.session.request(method, url, timeout=timeout, **kwargs)
         response.raise_for_status()
@@ -95,6 +119,7 @@ class GrafanaClient:
         datasource_uid: str,
         sql: str,
     ) -> dict[str, Any]:
+        _assert_select_only(sql)
         payload = {
             "queries": [
                 {
@@ -151,7 +176,9 @@ def flatten_loki_response(data: dict[str, Any]) -> dict[str, Any]:
         for ts_ns, line in stream.get("values", []):
             lines.append(
                 {
-                    "timestamp": datetime.fromtimestamp(int(ts_ns) / 1e9, tz=timezone.utc).isoformat(),
+                    "timestamp": datetime.fromtimestamp(
+                        int(ts_ns) / 1e9, tz=timezone.utc
+                    ).isoformat(),
                     "labels": labels,
                     "line": line,
                 }

@@ -66,12 +66,19 @@ async def query_loki(
 
 @mcp.tool()
 async def query_postgres(datasource_uid: str, sql: str) -> dict[str, Any]:
-    """Run a SQL query through a Grafana PostgreSQL datasource UID."""
+    """
+    Run a read-only SQL SELECT query through a Grafana PostgreSQL datasource.
+
+    Only SELECT statements are permitted. INSERT, UPDATE, DELETE, DROP, and
+    other write/DDL statements are blocked for safety.
+    """
     return await anyio.to_thread.run_sync(
         lambda: get_client().query_postgres(datasource_uid=datasource_uid, sql=sql)
     )
 
 
 def run() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
+    )
     mcp.run()

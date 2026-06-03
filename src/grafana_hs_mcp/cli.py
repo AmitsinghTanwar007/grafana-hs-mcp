@@ -23,7 +23,9 @@ REPO_URL = "git+https://github.com/AmitsinghTanwar007/grafana-hs-mcp.git"
 
 def _default_claude_config_path() -> Path:
     if sys.platform == "darwin":
-        return Path("~/Library/Application Support/Claude/claude_desktop_config.json").expanduser()
+        return Path(
+            "~/Library/Application Support/Claude/claude_desktop_config.json"
+        ).expanduser()
     if sys.platform.startswith("win"):
         appdata = os.getenv("APPDATA", "")
         return Path(appdata) / "Claude" / "claude_desktop_config.json"
@@ -33,12 +35,20 @@ def _default_claude_config_path() -> Path:
 OPENCODE_CONFIG_FILE = Path(
     os.getenv("OPENCODE_CONFIG_FILE", "~/.config/opencode/opencode.json")
 ).expanduser()
-CLAUDE_CONFIG_FILE = Path(os.getenv("CLAUDE_CONFIG_FILE", str(_default_claude_config_path()))).expanduser()
-CURSOR_CONFIG_FILE = Path(os.getenv("CURSOR_CONFIG_FILE", "~/.cursor/mcp.json")).expanduser()
-CODEX_CONFIG_FILE = Path(os.getenv("CODEX_CONFIG_FILE", "~/.codex/config.toml")).expanduser()
+CLAUDE_CONFIG_FILE = Path(
+    os.getenv("CLAUDE_CONFIG_FILE", str(_default_claude_config_path()))
+).expanduser()
+CURSOR_CONFIG_FILE = Path(
+    os.getenv("CURSOR_CONFIG_FILE", "~/.cursor/mcp.json")
+).expanduser()
+CODEX_CONFIG_FILE = Path(
+    os.getenv("CODEX_CONFIG_FILE", "~/.codex/config.toml")
+).expanduser()
 
 
-_DESCRIPTION = "MCP server for Grafana — query Loki logs and PostgreSQL via your AI assistant."
+_DESCRIPTION = (
+    "MCP server for Grafana — query Loki logs and PostgreSQL via your AI assistant."
+)
 
 _EPILOG = """
 commands:
@@ -72,7 +82,9 @@ examples:
 
 
 def main(argv: list[str] | None = None) -> None:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
+    )
 
     parser = argparse.ArgumentParser(
         prog="grafana-hs-mcp",
@@ -82,29 +94,87 @@ def main(argv: list[str] | None = None) -> None:
     )
     subparsers = parser.add_subparsers(dest="command", metavar="command")
 
-    setup_cmd = subparsers.add_parser("setup", help="Configure Grafana URL and authenticate via browser SSO")
-    setup_cmd.add_argument("--grafana-url", default=None, help="Grafana base URL (prompted if not given)")
-    setup_cmd.add_argument("--loki-datasource-uid", default="loki", help="Loki datasource UID (default: loki)")
-    setup_cmd.add_argument("--profile-dir", default=str(PROFILE_DIR), help="Playwright browser profile directory")
-    setup_cmd.add_argument("--skip-browser", action="store_true", help="Only save config; skip browser login (reuse existing profile)")
-    setup_cmd.add_argument("--headless", action="store_true", help="Run browser headless (only works if profile is already valid)")
+    setup_cmd = subparsers.add_parser(
+        "setup", help="Configure Grafana URL and authenticate via browser SSO"
+    )
+    setup_cmd.add_argument(
+        "--grafana-url", default=None, help="Grafana base URL (prompted if not given)"
+    )
+    setup_cmd.add_argument(
+        "--loki-datasource-uid",
+        default="loki",
+        help="Loki datasource UID (default: loki)",
+    )
+    setup_cmd.add_argument(
+        "--profile-dir",
+        default=str(PROFILE_DIR),
+        help="Playwright browser profile directory",
+    )
+    setup_cmd.add_argument(
+        "--skip-browser",
+        action="store_true",
+        help="Only save config; skip browser login (reuse existing profile)",
+    )
+    setup_cmd.add_argument(
+        "--headless",
+        action="store_true",
+        help="Run browser headless (only works if profile is already valid)",
+    )
 
-    env_cmd = subparsers.add_parser("env", help="Show current config and environment values")
-    env_cmd.add_argument("--interactive", "-i", action="store_true", help="Interactively edit config values, then optionally run doctor")
-    env_cmd.add_argument("--show-secrets", action="store_true", help="Show secret values instead of masking them")
+    env_cmd = subparsers.add_parser(
+        "env", help="Show current config and environment values"
+    )
+    env_cmd.add_argument(
+        "--interactive",
+        "-i",
+        action="store_true",
+        help="Interactively edit config values, then optionally run doctor",
+    )
+    env_cmd.add_argument(
+        "--show-secrets",
+        action="store_true",
+        help="Show secret values instead of masking them",
+    )
 
-    subparsers.add_parser("doctor", help="Verify config, auth, and Grafana connectivity")
-    subparsers.add_parser("configure-opencode", help="Add grafana-hs-mcp to opencode MCP config")
-    subparsers.add_parser("configure-claude", help="Add grafana-hs-mcp to Claude Desktop MCP config")
-    subparsers.add_parser("configure-claude-code", help="Add grafana-hs-mcp to Claude Code (CLI) MCP config")
-    subparsers.add_parser("configure-cursor", help="Add grafana-hs-mcp to Cursor MCP config")
-    subparsers.add_parser("configure-codex", help="Add grafana-hs-mcp to Codex MCP config")
-    subparsers.add_parser("configure-all", help="Configure all supported AI clients at once")
-    subparsers.add_parser("update", help="Update grafana-hs-mcp to the latest version from GitHub")
-    cleanup_cmd = subparsers.add_parser("cleanup", help="Remove local data files and browser profile")
-    cleanup_cmd.add_argument("--yes", "-y", action="store_true", help="Skip confirmation prompt")
-    cleanup_cmd.add_argument("--browser-cache", action="store_true", help="Also remove Playwright browser cache (~/.cache/ms-playwright)")
-    subparsers.add_parser("run", help="Start MCP server over stdio (used by AI clients)")
+    subparsers.add_parser(
+        "doctor", help="Verify config, auth, and Grafana connectivity"
+    )
+    subparsers.add_parser(
+        "configure-opencode", help="Add grafana-hs-mcp to opencode MCP config"
+    )
+    subparsers.add_parser(
+        "configure-claude", help="Add grafana-hs-mcp to Claude Desktop MCP config"
+    )
+    subparsers.add_parser(
+        "configure-claude-code",
+        help="Add grafana-hs-mcp to Claude Code (CLI) MCP config",
+    )
+    subparsers.add_parser(
+        "configure-cursor", help="Add grafana-hs-mcp to Cursor MCP config"
+    )
+    subparsers.add_parser(
+        "configure-codex", help="Add grafana-hs-mcp to Codex MCP config"
+    )
+    subparsers.add_parser(
+        "configure-all", help="Configure all supported AI clients at once"
+    )
+    subparsers.add_parser(
+        "update", help="Update grafana-hs-mcp to the latest version from GitHub"
+    )
+    cleanup_cmd = subparsers.add_parser(
+        "cleanup", help="Remove local data files and browser profile"
+    )
+    cleanup_cmd.add_argument(
+        "--yes", "-y", action="store_true", help="Skip confirmation prompt"
+    )
+    cleanup_cmd.add_argument(
+        "--browser-cache",
+        action="store_true",
+        help="Also remove Playwright browser cache (~/.cache/ms-playwright)",
+    )
+    subparsers.add_parser(
+        "run", help="Start MCP server over stdio (used by AI clients)"
+    )
 
     args = parser.parse_args(argv)
 
@@ -133,9 +203,11 @@ def main(argv: list[str] | None = None) -> None:
             do_cleanup(args)
         elif args.command == "run":
             from .server import run as run_server
+
             run_server()
         else:
             from .server import run as run_server
+
             run_server()
     except (KeyboardInterrupt, EOFError):
         print("\nCancelled.")
@@ -147,7 +219,9 @@ def do_setup(args) -> None:
     prompt = f"Grafana URL [{default_url}]: " if default_url else "Grafana URL: "
     grafana_url = args.grafana_url or input(prompt).strip() or default_url
     if not grafana_url:
-        raise SystemExit("Grafana URL is required. Example: https://grafana.example.com")
+        raise SystemExit(
+            "Grafana URL is required. Example: https://grafana.example.com"
+        )
     profile_dir = Path(args.profile_dir).expanduser()
     _assert_grafana_reachable(grafana_url)
 
@@ -267,7 +341,9 @@ def do_configure_claude() -> None:
 
 def do_configure_claude_code() -> None:
     if not shutil.which("claude"):
-        raise SystemExit("Claude Code CLI not found. Install Claude Code first, then rerun this command.")
+        raise SystemExit(
+            "Claude Code CLI not found. Install Claude Code first, then rerun this command."
+        )
 
     subprocess.run(
         ["claude", "mcp", "remove", "--scope", "user", "grafana"],
@@ -363,14 +439,46 @@ def _print_env(cfg: Config | None, config_exists: bool, show_secrets: bool) -> N
 
     rows = [
         ("Config file", str(CONFIG_FILE), "exists" if config_exists else "missing"),
-        ("GRAFANA_HS_MCP_HOME", os.getenv("GRAFANA_HS_MCP_HOME", ""), "env" if os.getenv("GRAFANA_HS_MCP_HOME") else "default"),
-        ("GRAFANA_URL", cfg.grafana_url if cfg else "", _source("GRAFANA_URL", config_exists)),
-        ("GRAFANA_LOKI_DATASOURCE_UID", cfg.loki_datasource_uid if cfg else "", _source("GRAFANA_LOKI_DATASOURCE_UID", config_exists)),
-        ("GRAFANA_HS_MCP_PROFILE_DIR", str(cfg.profile_dir) if cfg else str(PROFILE_DIR), _source("GRAFANA_HS_MCP_PROFILE_DIR", config_exists)),
-        ("GRAFANA_API_TOKEN", _secret(os.getenv("GRAFANA_API_TOKEN"), show_secrets), "env" if os.getenv("GRAFANA_API_TOKEN") else "not set"),
-        ("DISPLAY", os.getenv("DISPLAY", ""), "env" if os.getenv("DISPLAY") else "not set"),
-        ("WAYLAND_DISPLAY", os.getenv("WAYLAND_DISPLAY", ""), "env" if os.getenv("WAYLAND_DISPLAY") else "not set"),
-        ("Profile exists", "yes" if cfg and cfg.profile_dir.exists() else "no", str(cfg.profile_dir if cfg else PROFILE_DIR)),
+        (
+            "GRAFANA_HS_MCP_HOME",
+            os.getenv("GRAFANA_HS_MCP_HOME", ""),
+            "env" if os.getenv("GRAFANA_HS_MCP_HOME") else "default",
+        ),
+        (
+            "GRAFANA_URL",
+            cfg.grafana_url if cfg else "",
+            _source("GRAFANA_URL", config_exists),
+        ),
+        (
+            "GRAFANA_LOKI_DATASOURCE_UID",
+            cfg.loki_datasource_uid if cfg else "",
+            _source("GRAFANA_LOKI_DATASOURCE_UID", config_exists),
+        ),
+        (
+            "GRAFANA_HS_MCP_PROFILE_DIR",
+            str(cfg.profile_dir) if cfg else str(PROFILE_DIR),
+            _source("GRAFANA_HS_MCP_PROFILE_DIR", config_exists),
+        ),
+        (
+            "GRAFANA_API_TOKEN",
+            _secret(os.getenv("GRAFANA_API_TOKEN"), show_secrets),
+            "env" if os.getenv("GRAFANA_API_TOKEN") else "not set",
+        ),
+        (
+            "DISPLAY",
+            os.getenv("DISPLAY", ""),
+            "env" if os.getenv("DISPLAY") else "not set",
+        ),
+        (
+            "WAYLAND_DISPLAY",
+            os.getenv("WAYLAND_DISPLAY", ""),
+            "env" if os.getenv("WAYLAND_DISPLAY") else "not set",
+        ),
+        (
+            "Profile exists",
+            "yes" if cfg and cfg.profile_dir.exists() else "no",
+            str(cfg.profile_dir if cfg else PROFILE_DIR),
+        ),
     ]
 
     print("Grafana HS MCP environment")
@@ -394,7 +502,6 @@ def _print_env(cfg: Config | None, config_exists: bool, show_secrets: bool) -> N
     print("  grafana-hs-mcp run")
 
 
-
 def _prompt_config(cfg: Config | None) -> Config:
     current_url = cfg.grafana_url if cfg else os.getenv("GRAFANA_URL", "")
     current_loki_uid = cfg.loki_datasource_uid if cfg else "loki"
@@ -406,13 +513,21 @@ def _prompt_config(cfg: Config | None) -> Config:
     url_prompt = f"Grafana URL [{current_url}]: " if current_url else "Grafana URL: "
     grafana_url = input(url_prompt).strip() or current_url
     if not grafana_url:
-        raise SystemExit("Grafana URL is required. Example: https://grafana.example.com")
-    loki_uid = input(f"Loki datasource UID [{current_loki_uid}]: ").strip() or current_loki_uid
+        raise SystemExit(
+            "Grafana URL is required. Example: https://grafana.example.com"
+        )
+    loki_uid = (
+        input(f"Loki datasource UID [{current_loki_uid}]: ").strip() or current_loki_uid
+    )
     profile_dir_raw = input(f"Playwright profile dir [{current_profile_dir}]: ").strip()
-    profile_dir = Path(profile_dir_raw).expanduser() if profile_dir_raw else current_profile_dir
+    profile_dir = (
+        Path(profile_dir_raw).expanduser() if profile_dir_raw else current_profile_dir
+    )
 
     print()
-    print("Note: GRAFANA_API_TOKEN is not saved here. Set it as an environment variable if needed.")
+    print(
+        "Note: GRAFANA_API_TOKEN is not saved here. Set it as an environment variable if needed."
+    )
 
     return Config(
         grafana_url=grafana_url.rstrip("/"),

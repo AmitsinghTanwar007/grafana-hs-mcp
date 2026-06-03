@@ -35,7 +35,9 @@ def load_config() -> Config:
             "or set GRAFANA_URL."
         )
 
-    profile_dir = os.getenv("GRAFANA_HS_MCP_PROFILE_DIR") or cfg.get("profile_dir", str(PROFILE_DIR))
+    profile_dir = os.getenv("GRAFANA_HS_MCP_PROFILE_DIR") or cfg.get(
+        "profile_dir", str(PROFILE_DIR)
+    )
 
     return Config(
         grafana_url=grafana_url.rstrip("/"),

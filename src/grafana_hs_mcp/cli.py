@@ -6,7 +6,7 @@ import os
 import sys
 from pathlib import Path
 
-from .auth import can_use_headed_browser, setup_profile
+from .auth import can_use_headed_browser, ensure_playwright_chromium, setup_profile
 from .config import Config, CONFIG_FILE, PROFILE_DIR, load_config, save_config
 from .grafana_client import GrafanaClient
 from .server import run as run_server
@@ -66,6 +66,7 @@ def do_setup(args) -> None:
     )
     save_config(cfg)
     print(f"Saved config: {CONFIG_FILE}")
+    ensure_playwright_chromium()
     if args.skip_browser:
         print(f"Using existing Playwright profile: {cfg.profile_dir}")
     else:

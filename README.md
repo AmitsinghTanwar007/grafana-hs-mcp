@@ -9,26 +9,33 @@ Current MVP tools:
 - `query_loki`
 - `query_postgres`
 
-## Install For Local Testing
+## Quick Start
 
-Get the repo first:
+Install from GitHub:
 
 ```bash
-git clone <repo-url> grafana-hs-mcp
+git clone git@github.com:AmitsinghTanwar007/grafana-hs-mcp.git
 cd grafana-hs-mcp
+python3 -m pip install -e .
+grafana-hs-mcp setup
+grafana-hs-mcp doctor
 ```
 
-For now, if you are using this machine, the repo already exists at:
+`grafana-hs-mcp setup` automatically installs the Playwright Chromium browser if needed, so users do not need to run `playwright install chromium` manually.
+
+If SSH clone is not configured, use HTTPS:
+
+```bash
+git clone https://github.com/AmitsinghTanwar007/grafana-hs-mcp.git
+cd grafana-hs-mcp
+python3 -m pip install -e .
+grafana-hs-mcp setup
+```
+
+For local development on this machine, the repo already exists at:
 
 ```bash
 cd ~/grafana-hs-mcp
-```
-
-From this repo:
-
-```bash
-python3 -m pip install -e .
-python3 -m playwright install chromium
 ```
 
 ## One-Time Auth Setup
@@ -84,6 +91,12 @@ grafana-hs-mcp env --interactive
 ```
 
 Sensitive values like `GRAFANA_API_TOKEN` are masked by default.
+
+If you only want to see config/env values:
+
+```bash
+grafana-hs-mcp env
+```
 
 ## Run As MCP Server
 

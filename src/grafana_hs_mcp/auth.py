@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import logging
 import os
+import subprocess
+import sys
 import urllib.parse
 from pathlib import Path
 from typing import Optional
@@ -15,6 +17,25 @@ logger = logging.getLogger(__name__)
 
 NAV_TIMEOUT_MS = 60_000
 SETTLE_TIMEOUT_MS = 3_000
+
+
+def ensure_playwright_chromium() -> None:
+    """
+    Install Playwright's Chromium browser if needed.
+
+    Python package dependencies are installed by pip/uv before this command can
+    run, but Playwright's browser binary is a separate download. Keep this in
+    setup so users do not need to remember `playwright install chromium`.
+    """
+    if os.getenv("GRAFANA_HS_MCP_SKIP_BROWSER_INSTALL"):
+        logger.info("Skipping Playwright browser install due to GRAFANA_HS_MCP_SKIP_BROWSER_INSTALL")
+        return
+
+    logger.info("Ensuring Playwright Chromium browser is installed")
+    subprocess.run(
+        [sys.executable, "-m", "playwright", "install", "chromium"],
+        check=True,
+    )
 
 
 class AuthManager:

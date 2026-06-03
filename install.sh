@@ -60,6 +60,7 @@ print_welcome() {
   echo "  grafana-hs-mcp env               Show config values"
   echo "  grafana-hs-mcp env --interactive Edit config values"
   echo "  grafana-hs-mcp update            Update to the latest version"
+  echo "  grafana-hs-mcp cleanup           Remove local files"
   echo
   echo "Next step:"
   echo "  grafana-hs-mcp setup"

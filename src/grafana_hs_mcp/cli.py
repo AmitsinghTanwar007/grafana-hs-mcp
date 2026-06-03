@@ -5,12 +5,13 @@ import json
 import logging
 import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 from .auth import ensure_playwright_chromium, setup_profile
-from .config import Config, CONFIG_FILE, PROFILE_DIR, load_config, save_config
+from .config import APP_DIR, Config, CONFIG_FILE, PROFILE_DIR, load_config, save_config
 from .grafana_client import GrafanaClient
 
 
@@ -59,6 +60,9 @@ def main(argv: list[str] | None = None) -> None:
     subparsers.add_parser("configure-codex", help="Add grafana-hs-mcp to Codex MCP config")
     subparsers.add_parser("configure-all", help="Configure all supported AI clients")
     subparsers.add_parser("update", help="Update grafana-hs-mcp to the latest GitHub version")
+    cleanup_cmd = subparsers.add_parser("cleanup", help="Remove grafana-hs-mcp local files")
+    cleanup_cmd.add_argument("--yes", "-y", action="store_true", help="Skip confirmation")
+    cleanup_cmd.add_argument("--browser-cache", action="store_true", help="Also remove Playwright browser cache")
     subparsers.add_parser("run", help="Run MCP server over stdio")
 
     args = parser.parse_args(argv)
@@ -81,6 +85,8 @@ def main(argv: list[str] | None = None) -> None:
         do_configure_all()
     elif args.command == "update":
         do_update()
+    elif args.command == "cleanup":
+        do_cleanup(args)
     elif args.command == "run":
         from .server import run as run_server
         run_server()
@@ -100,7 +106,7 @@ def do_setup(args) -> None:
     )
     save_config(cfg)
     print(f"Saved config: {CONFIG_FILE}")
-    ensure_playwright_chromium()
+    ensure_playwright_chromium(interactive=True)
     if args.skip_browser:
         print(f"Using existing Playwright profile: {cfg.profile_dir}")
     else:
@@ -142,6 +148,41 @@ def do_update() -> None:
     print()
     print("grafana-hs-mcp updated successfully")
     print("Run: grafana-hs-mcp doctor")
+
+
+def do_cleanup(args) -> None:
+    paths = [APP_DIR]
+    bin_path = Path("~/.local/bin/grafana-hs-mcp").expanduser()
+    if bin_path.exists() or bin_path.is_symlink():
+        paths.append(bin_path)
+    current_binary = shutil.which("grafana-hs-mcp")
+    if current_binary:
+        current_binary_path = Path(current_binary)
+        if current_binary_path not in paths:
+            paths.append(current_binary_path)
+
+    if args.browser_cache:
+        paths.extend(_playwright_cache_paths())
+
+    print("The following paths will be removed if they exist:")
+    for path in paths:
+        print(f"  {path}")
+
+    if not args.yes:
+        answer = input("Continue? [y/N]: ").strip().lower()
+        if answer not in {"y", "yes"}:
+            print("Cancelled.")
+            return
+
+    for path in paths:
+        if path.is_symlink() or path.is_file():
+            path.unlink(missing_ok=True)
+            print(f"Removed: {path}")
+        elif path.exists():
+            shutil.rmtree(path)
+            print(f"Removed: {path}")
+
+    print("Cleanup complete.")
 
 
 def do_configure_opencode() -> None:
@@ -256,6 +297,7 @@ def _print_env(cfg: Config | None, config_exists: bool, show_secrets: bool) -> N
     print("  grafana-hs-mcp configure-codex")
     print("  grafana-hs-mcp configure-all")
     print("  grafana-hs-mcp update")
+    print("  grafana-hs-mcp cleanup")
     print("  grafana-hs-mcp run")
 
 
@@ -320,6 +362,15 @@ def _upsert_toml_table(text: str, table: str, body: str) -> str:
     if base:
         base += "\n\n"
     return f"{base}{table_header}\n{body}\n"
+
+
+def _playwright_cache_paths() -> list[Path]:
+    if sys.platform == "darwin":
+        return [Path("~/Library/Caches/ms-playwright").expanduser()]
+    if sys.platform.startswith("win"):
+        local_appdata = os.getenv("LOCALAPPDATA", "")
+        return [Path(local_appdata) / "ms-playwright"] if local_appdata else []
+    return [Path("~/.cache/ms-playwright").expanduser()]
 
 
 def _source(env_name: str, has_config: bool) -> str:

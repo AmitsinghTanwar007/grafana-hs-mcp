@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
 import subprocess
 import sys
 import urllib.parse
@@ -19,7 +20,36 @@ NAV_TIMEOUT_MS = 60_000
 SETTLE_TIMEOUT_MS = 3_000
 
 
-def ensure_playwright_chromium() -> None:
+def find_system_chrome() -> Path | None:
+    env_path = os.getenv("GRAFANA_HS_MCP_CHROME")
+    if env_path and Path(env_path).exists():
+        return Path(env_path)
+
+    candidates: list[str | Path] = []
+    if sys.platform == "darwin":
+        candidates.extend([
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+            "/Applications/Chromium.app/Contents/MacOS/Chromium",
+            Path.home() / "Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        ])
+    elif sys.platform.startswith("linux"):
+        candidates.extend(["google-chrome", "google-chrome-stable", "chromium", "chromium-browser"])
+    elif sys.platform.startswith("win"):
+        local_appdata = os.getenv("LOCALAPPDATA", "")
+        program_files = os.getenv("PROGRAMFILES", "")
+        candidates.extend([
+            Path(program_files) / "Google/Chrome/Application/chrome.exe",
+            Path(local_appdata) / "Google/Chrome/Application/chrome.exe",
+        ])
+
+    for candidate in candidates:
+        path = shutil.which(str(candidate)) if not str(candidate).startswith("/") else str(candidate)
+        if path and Path(path).exists():
+            return Path(path)
+    return None
+
+
+def ensure_playwright_chromium(interactive: bool = True) -> None:
     """
     Install Playwright's Chromium browser if needed.
 
@@ -30,6 +60,17 @@ def ensure_playwright_chromium() -> None:
     if os.getenv("GRAFANA_HS_MCP_SKIP_BROWSER_INSTALL"):
         logger.info("Skipping Playwright browser install due to GRAFANA_HS_MCP_SKIP_BROWSER_INSTALL")
         return
+
+    if find_system_chrome():
+        logger.info("Using system Chrome/Chromium; Playwright browser download not needed")
+        return
+
+    if interactive:
+        answer = input("No system Chrome/Chromium found. Download Playwright Chromium (~300-450 MB)? [Y/n]: ").strip().lower()
+        if answer in {"n", "no"}:
+            raise RuntimeError(
+                "No browser available. Install Google Chrome/Chromium or rerun setup and allow the download."
+            )
 
     logger.info("Ensuring Playwright Chromium browser is installed")
     subprocess.run(
@@ -94,15 +135,10 @@ class AuthManager:
             return None
 
         with sync_playwright() as pw:
+            launch_kwargs = _launch_kwargs(profile_dir, headless)
             context = pw.chromium.launch_persistent_context(
                 user_data_dir=str(profile_dir),
-                headless=headless,
-                args=[
-                    "--no-sandbox",
-                    "--disable-dev-shm-usage",
-                    "--password-store=basic",
-                    "--use-mock-keychain",
-                ],
+                **launch_kwargs,
             )
             page = context.new_page()
             try:
@@ -169,15 +205,10 @@ def setup_profile(grafana_url: str, profile_dir: Path = PROFILE_DIR, headless: b
     profile_dir.mkdir(parents=True, exist_ok=True)
 
     with sync_playwright() as pw:
+        launch_kwargs = _launch_kwargs(profile_dir, headless)
         context = pw.chromium.launch_persistent_context(
             user_data_dir=str(profile_dir),
-            headless=headless,
-            args=[
-                "--no-sandbox",
-                "--disable-dev-shm-usage",
-                "--password-store=basic",
-                "--use-mock-keychain",
-            ],
+            **launch_kwargs,
         )
         page = context.new_page()
         page.goto(grafana_url.rstrip("/"), timeout=NAV_TIMEOUT_MS, wait_until="domcontentloaded")
@@ -198,3 +229,18 @@ def can_use_headed_browser() -> bool:
     if sys.platform == "darwin" or sys.platform.startswith("win"):
         return True
     return bool(os.getenv("DISPLAY") or os.getenv("WAYLAND_DISPLAY"))
+
+
+def _launch_kwargs(profile_dir: Path, headless: bool) -> dict:
+    chrome_path = find_system_chrome()
+    args = [
+        "--no-sandbox",
+        "--disable-dev-shm-usage",
+        "--password-store=basic",
+        "--use-mock-keychain",
+    ]
+    kwargs = {"headless": headless, "args": args}
+    if chrome_path:
+        kwargs["executable_path"] = str(chrome_path)
+        logger.info("Using browser: %s", chrome_path)
+    return kwargs

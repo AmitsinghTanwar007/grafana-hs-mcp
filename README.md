@@ -13,7 +13,7 @@ grafana-hs-mcp doctor
 grafana-hs-mcp configure-all
 ```
 
-The installer creates an isolated Python environment and makes the `grafana-hs-mcp` command available. `setup` installs the required Playwright browser and opens Grafana login.
+The installer creates an isolated Python environment and makes the `grafana-hs-mcp` command available. `setup` uses your system Chrome/Chromium if available; otherwise it asks before downloading Playwright Chromium.
 
 ## Check Config
 
@@ -28,6 +28,18 @@ Interactive mode lets you update saved config values from the terminal.
 
 ```bash
 grafana-hs-mcp update
+```
+
+## Cleanup
+
+```bash
+grafana-hs-mcp cleanup
+```
+
+To also remove Playwright browser cache:
+
+```bash
+grafana-hs-mcp cleanup --browser-cache
 ```
 
 ## Add To AI Client

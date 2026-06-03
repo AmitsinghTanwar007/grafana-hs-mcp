@@ -2,32 +2,24 @@
 
 Use Grafana from your AI client through MCP.
 
-## Install
+## Setup
 
 ```bash
-git clone git@github.com:AmitsinghTanwar007/grafana-hs-mcp.git
-cd grafana-hs-mcp
-python3 -m pip install -e .
-grafana-hs-mcp setup
-grafana-hs-mcp doctor
+uvx --from git+https://github.com/AmitsinghTanwar007/grafana-hs-mcp.git grafana-hs-mcp setup
 ```
 
-If SSH clone is not configured:
+This installs the package, installs the required Playwright browser, and opens Grafana login.
+
+Verify:
 
 ```bash
-git clone https://github.com/AmitsinghTanwar007/grafana-hs-mcp.git
-cd grafana-hs-mcp
-python3 -m pip install -e .
-grafana-hs-mcp setup
-grafana-hs-mcp doctor
+uvx --from git+https://github.com/AmitsinghTanwar007/grafana-hs-mcp.git grafana-hs-mcp doctor
 ```
-
-`setup` installs the required Playwright Chromium browser and opens Grafana login.
 
 ## Check Config
 
 ```bash
-grafana-hs-mcp env
+uvx --from git+https://github.com/AmitsinghTanwar007/grafana-hs-mcp.git grafana-hs-mcp env
 ```
 
 ## Add To opencode
@@ -38,7 +30,12 @@ grafana-hs-mcp env
   "mcp": {
     "grafana": {
       "type": "local",
-      "command": ["grafana-hs-mcp"],
+      "command": [
+        "uvx",
+        "--from",
+        "git+https://github.com/AmitsinghTanwar007/grafana-hs-mcp.git",
+        "grafana-hs-mcp"
+      ],
       "enabled": true
     }
   }

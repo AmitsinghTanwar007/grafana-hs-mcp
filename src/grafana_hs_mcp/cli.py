@@ -92,7 +92,16 @@ def do_doctor() -> None:
 def do_update() -> None:
     print("Updating grafana-hs-mcp...")
     subprocess.run(
-        [sys.executable, "-m", "pip", "install", "--upgrade", REPO_URL],
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--upgrade",
+            "--force-reinstall",
+            "--no-cache-dir",
+            REPO_URL,
+        ],
         check=True,
     )
     print()

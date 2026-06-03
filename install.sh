@@ -94,7 +94,7 @@ fi
 
 step 3 "Installing grafana-hs-mcp"
 "$VENV_DIR/bin/python" -m pip install --upgrade pip >/dev/null
-"$VENV_DIR/bin/python" -m pip install --upgrade --force-reinstall --no-cache-dir "$REPO_URL"
+"$VENV_DIR/bin/python" -m pip install --upgrade "$REPO_URL"
 
 step 4 "Creating command"
 ln -sf "$VENV_DIR/bin/grafana-hs-mcp" "$BIN_DIR/grafana-hs-mcp"

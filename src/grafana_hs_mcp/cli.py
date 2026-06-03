@@ -181,6 +181,8 @@ def do_doctor() -> None:
 
 def do_update() -> None:
     print("Updating grafana-hs-mcp...")
+    # --no-deps: only reinstall this package; skip re-downloading dependencies
+    # --force-reinstall: replace the package even if version looks the same (git installs)
     subprocess.run(
         [
             sys.executable,
@@ -189,7 +191,7 @@ def do_update() -> None:
             "install",
             "--upgrade",
             "--force-reinstall",
-            "--no-cache-dir",
+            "--no-deps",
             REPO_URL,
         ],
         check=True,

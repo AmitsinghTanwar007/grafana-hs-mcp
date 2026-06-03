@@ -60,7 +60,10 @@ def main(argv: list[str] | None = None) -> None:
     subparsers.add_parser("configure-codex", help="Add grafana-hs-mcp to Codex MCP config")
     subparsers.add_parser("configure-all", help="Configure all supported AI clients")
     subparsers.add_parser("update", help="Update grafana-hs-mcp to the latest GitHub version")
-    cleanup_cmd = subparsers.add_parser("cleanup", help="Remove grafana-hs-mcp local files")
+    cleanup_cmd = subparsers.add_parser(
+        "cleanup",
+        help="Remove local files; add --browser-cache to remove Playwright cache",
+    )
     cleanup_cmd.add_argument("--yes", "-y", action="store_true", help="Skip confirmation")
     cleanup_cmd.add_argument("--browser-cache", action="store_true", help="Also remove Playwright browser cache")
     subparsers.add_parser("run", help="Run MCP server over stdio")

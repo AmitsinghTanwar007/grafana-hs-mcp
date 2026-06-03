@@ -15,6 +15,8 @@ grafana-hs-mcp configure-all
 
 The installer creates an isolated Python environment and makes the `grafana-hs-mcp` command available. `setup` uses your system Chrome/Chromium if available; otherwise it asks before downloading Playwright Chromium.
 
+Turn on VPN before running `setup` or `doctor` if your Grafana requires VPN access.
+
 ## Check Config
 
 ```bash

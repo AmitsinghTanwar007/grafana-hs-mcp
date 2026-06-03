@@ -10,6 +10,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import requests
+
 from .auth import ensure_playwright_chromium, setup_profile
 from .config import APP_DIR, Config, CONFIG_FILE, PROFILE_DIR, load_config, save_config
 from .grafana_client import GrafanaClient
@@ -101,6 +103,7 @@ def main(argv: list[str] | None = None) -> None:
 def do_setup(args) -> None:
     grafana_url = args.grafana_url or input(f"Grafana URL [{DEFAULT_GRAFANA_URL}]: ").strip() or DEFAULT_GRAFANA_URL
     profile_dir = Path(args.profile_dir).expanduser()
+    _assert_grafana_reachable(grafana_url)
 
     cfg = Config(
         grafana_url=grafana_url.rstrip("/"),
@@ -121,6 +124,7 @@ def do_setup(args) -> None:
 
 def do_doctor() -> None:
     cfg = load_config()
+    _assert_grafana_reachable(cfg.grafana_url)
     client = GrafanaClient(cfg)
     health = client.health_check()
     print("Grafana health:", health)
@@ -245,6 +249,19 @@ def do_configure_all() -> None:
     do_configure_codex()
     print()
     print("Done. Restart the AI client you want to use.")
+
+
+def _assert_grafana_reachable(grafana_url: str) -> None:
+    url = grafana_url.rstrip("/")
+    try:
+        requests.get(url, timeout=8, allow_redirects=False)
+    except requests.RequestException as exc:
+        print()
+        print("Grafana is not reachable.")
+        print("Turn on VPN and try again.")
+        print(f"URL: {url}")
+        print(f"Error: {exc}")
+        raise SystemExit(1) from exc
 
 
 def do_env(args) -> None:

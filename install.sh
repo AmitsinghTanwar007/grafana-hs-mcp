@@ -57,6 +57,7 @@ print_welcome() {
   echo "  grafana-hs-mcp setup             Configure Grafana login"
   echo "  grafana-hs-mcp doctor            Verify Grafana access"
   echo "  grafana-hs-mcp configure-all     Add MCP config to supported AI clients"
+  echo "  grafana-hs-mcp configure-claude-code Add MCP config to Claude Code"
   echo "  grafana-hs-mcp env               Show config values"
   echo "  grafana-hs-mcp env --interactive Edit config values"
   echo "  grafana-hs-mcp update            Update to the latest version"

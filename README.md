@@ -57,6 +57,7 @@ Or configure one client:
 ```bash
 grafana-hs-mcp configure-opencode
 grafana-hs-mcp configure-claude
+grafana-hs-mcp configure-claude-code
 grafana-hs-mcp configure-cursor
 grafana-hs-mcp configure-codex
 ```

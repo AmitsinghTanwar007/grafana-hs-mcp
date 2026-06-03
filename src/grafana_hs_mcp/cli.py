@@ -58,6 +58,7 @@ def main(argv: list[str] | None = None) -> None:
     subparsers.add_parser("doctor", help="Verify config, auth, and Grafana access")
     subparsers.add_parser("configure-opencode", help="Add grafana-hs-mcp to opencode MCP config")
     subparsers.add_parser("configure-claude", help="Add grafana-hs-mcp to Claude Desktop MCP config")
+    subparsers.add_parser("configure-claude-code", help="Add grafana-hs-mcp to Claude Code MCP config")
     subparsers.add_parser("configure-cursor", help="Add grafana-hs-mcp to Cursor MCP config")
     subparsers.add_parser("configure-codex", help="Add grafana-hs-mcp to Codex MCP config")
     subparsers.add_parser("configure-all", help="Configure all supported AI clients")
@@ -82,6 +83,8 @@ def main(argv: list[str] | None = None) -> None:
         do_configure_opencode()
     elif args.command == "configure-claude":
         do_configure_claude()
+    elif args.command == "configure-claude-code":
+        do_configure_claude_code()
     elif args.command == "configure-cursor":
         do_configure_cursor()
     elif args.command == "configure-codex":
@@ -221,6 +224,24 @@ def do_configure_claude() -> None:
     print("Restart Claude Desktop for the MCP server to load.")
 
 
+def do_configure_claude_code() -> None:
+    if not shutil.which("claude"):
+        raise SystemExit("Claude Code CLI not found. Install Claude Code first, then rerun this command.")
+
+    subprocess.run(
+        ["claude", "mcp", "remove", "--scope", "user", "grafana"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    subprocess.run(
+        ["claude", "mcp", "add", "--scope", "user", "grafana", "--", "grafana-hs-mcp"],
+        check=True,
+    )
+    print("Updated Claude Code MCP config")
+    print("Restart Claude Code for the MCP server to load.")
+
+
 def do_configure_cursor() -> None:
     data = _read_json_config(CURSOR_CONFIG_FILE)
     mcp = data.setdefault("mcpServers", {})
@@ -248,6 +269,12 @@ def do_configure_all() -> None:
     print()
     do_configure_claude()
     print()
+    if shutil.which("claude"):
+        do_configure_claude_code()
+        print()
+    else:
+        print("Skipped Claude Code config: claude CLI not found.")
+        print()
     do_configure_cursor()
     print()
     do_configure_codex()
@@ -317,6 +344,7 @@ def _print_env(cfg: Config | None, config_exists: bool, show_secrets: bool) -> N
     print("  grafana-hs-mcp doctor")
     print("  grafana-hs-mcp configure-opencode")
     print("  grafana-hs-mcp configure-claude")
+    print("  grafana-hs-mcp configure-claude-code")
     print("  grafana-hs-mcp configure-cursor")
     print("  grafana-hs-mcp configure-codex")
     print("  grafana-hs-mcp configure-all")

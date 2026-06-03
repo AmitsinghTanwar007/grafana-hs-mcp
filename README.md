@@ -10,6 +10,7 @@ Linux/macOS:
 curl -fsSL https://raw.githubusercontent.com/AmitsinghTanwar007/grafana-hs-mcp/master/install.sh | bash
 grafana-hs-mcp setup
 grafana-hs-mcp doctor
+grafana-hs-mcp configure-all
 ```
 
 The installer creates an isolated Python environment and makes the `grafana-hs-mcp` command available. `setup` installs the required Playwright browser and opens Grafana login.
@@ -29,13 +30,22 @@ Interactive mode lets you update saved config values from the terminal.
 grafana-hs-mcp update
 ```
 
-## Add To opencode
+## Add To AI Client
+
+```bash
+grafana-hs-mcp configure-all
+```
+
+Or configure one client:
 
 ```bash
 grafana-hs-mcp configure-opencode
+grafana-hs-mcp configure-claude
+grafana-hs-mcp configure-cursor
+grafana-hs-mcp configure-codex
 ```
 
-Restart opencode after running this.
+Restart your AI client after running this.
 
 ## Try
 

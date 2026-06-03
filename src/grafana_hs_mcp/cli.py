@@ -4,6 +4,7 @@ import argparse
 import json
 import logging
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -15,9 +16,23 @@ from .grafana_client import GrafanaClient
 
 DEFAULT_GRAFANA_URL = "https://grafana.internal.staging.in1.hyperswitch.net"
 REPO_URL = "git+https://github.com/AmitsinghTanwar007/grafana-hs-mcp.git"
+
+
+def _default_claude_config_path() -> Path:
+    if sys.platform == "darwin":
+        return Path("~/Library/Application Support/Claude/claude_desktop_config.json").expanduser()
+    if sys.platform.startswith("win"):
+        appdata = os.getenv("APPDATA", "")
+        return Path(appdata) / "Claude" / "claude_desktop_config.json"
+    return Path("~/.config/Claude/claude_desktop_config.json").expanduser()
+
+
 OPENCODE_CONFIG_FILE = Path(
     os.getenv("OPENCODE_CONFIG_FILE", "~/.config/opencode/opencode.json")
 ).expanduser()
+CLAUDE_CONFIG_FILE = Path(os.getenv("CLAUDE_CONFIG_FILE", str(_default_claude_config_path()))).expanduser()
+CURSOR_CONFIG_FILE = Path(os.getenv("CURSOR_CONFIG_FILE", "~/.cursor/mcp.json")).expanduser()
+CODEX_CONFIG_FILE = Path(os.getenv("CODEX_CONFIG_FILE", "~/.codex/config.toml")).expanduser()
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -39,6 +54,10 @@ def main(argv: list[str] | None = None) -> None:
 
     subparsers.add_parser("doctor", help="Verify config, auth, and Grafana access")
     subparsers.add_parser("configure-opencode", help="Add grafana-hs-mcp to opencode MCP config")
+    subparsers.add_parser("configure-claude", help="Add grafana-hs-mcp to Claude Desktop MCP config")
+    subparsers.add_parser("configure-cursor", help="Add grafana-hs-mcp to Cursor MCP config")
+    subparsers.add_parser("configure-codex", help="Add grafana-hs-mcp to Codex MCP config")
+    subparsers.add_parser("configure-all", help="Configure all supported AI clients")
     subparsers.add_parser("update", help="Update grafana-hs-mcp to the latest GitHub version")
     subparsers.add_parser("run", help="Run MCP server over stdio")
 
@@ -52,6 +71,14 @@ def main(argv: list[str] | None = None) -> None:
         do_doctor()
     elif args.command == "configure-opencode":
         do_configure_opencode()
+    elif args.command == "configure-claude":
+        do_configure_claude()
+    elif args.command == "configure-cursor":
+        do_configure_cursor()
+    elif args.command == "configure-codex":
+        do_configure_codex()
+    elif args.command == "configure-all":
+        do_configure_all()
     elif args.command == "update":
         do_update()
     elif args.command == "run":
@@ -118,18 +145,7 @@ def do_update() -> None:
 
 
 def do_configure_opencode() -> None:
-    OPENCODE_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
-    if OPENCODE_CONFIG_FILE.exists():
-        try:
-            data = json.loads(OPENCODE_CONFIG_FILE.read_text())
-        except json.JSONDecodeError as exc:
-            raise RuntimeError(
-                f"Could not parse {OPENCODE_CONFIG_FILE}. "
-                "Please fix the JSON manually and run this command again."
-            ) from exc
-    else:
-        data = {}
-
+    data = _read_json_config(OPENCODE_CONFIG_FILE)
     data.setdefault("$schema", "https://opencode.ai/config.json")
     mcp = data.setdefault("mcp", {})
     mcp["grafana"] = {
@@ -137,12 +153,54 @@ def do_configure_opencode() -> None:
         "command": ["grafana-hs-mcp"],
         "enabled": True,
     }
-
-    OPENCODE_CONFIG_FILE.write_text(json.dumps(data, indent=2) + "\n")
+    _write_json_config(OPENCODE_CONFIG_FILE, data)
     print(f"Updated opencode config: {OPENCODE_CONFIG_FILE}")
     print()
     print("Restart opencode for the MCP server to load.")
     print("Then ask: List Grafana datasources.")
+
+
+def do_configure_claude() -> None:
+    data = _read_json_config(CLAUDE_CONFIG_FILE)
+    mcp = data.setdefault("mcpServers", {})
+    mcp["grafana"] = {"command": "grafana-hs-mcp"}
+    _write_json_config(CLAUDE_CONFIG_FILE, data)
+    print(f"Updated Claude Desktop config: {CLAUDE_CONFIG_FILE}")
+    print("Restart Claude Desktop for the MCP server to load.")
+
+
+def do_configure_cursor() -> None:
+    data = _read_json_config(CURSOR_CONFIG_FILE)
+    mcp = data.setdefault("mcpServers", {})
+    mcp["grafana"] = {"command": "grafana-hs-mcp"}
+    _write_json_config(CURSOR_CONFIG_FILE, data)
+    print(f"Updated Cursor config: {CURSOR_CONFIG_FILE}")
+    print("Restart Cursor for the MCP server to load.")
+
+
+def do_configure_codex() -> None:
+    CODEX_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    text = CODEX_CONFIG_FILE.read_text() if CODEX_CONFIG_FILE.exists() else ""
+    text = _upsert_toml_table(
+        text,
+        "mcp_servers.grafana",
+        'command = "grafana-hs-mcp"',
+    )
+    CODEX_CONFIG_FILE.write_text(text)
+    print(f"Updated Codex config: {CODEX_CONFIG_FILE}")
+    print("Restart Codex for the MCP server to load.")
+
+
+def do_configure_all() -> None:
+    do_configure_opencode()
+    print()
+    do_configure_claude()
+    print()
+    do_configure_cursor()
+    print()
+    do_configure_codex()
+    print()
+    print("Done. Restart the AI client you want to use.")
 
 
 def do_env(args) -> None:
@@ -193,6 +251,10 @@ def _print_env(cfg: Config | None, config_exists: bool, show_secrets: bool) -> N
     print("  grafana-hs-mcp setup")
     print("  grafana-hs-mcp doctor")
     print("  grafana-hs-mcp configure-opencode")
+    print("  grafana-hs-mcp configure-claude")
+    print("  grafana-hs-mcp configure-cursor")
+    print("  grafana-hs-mcp configure-codex")
+    print("  grafana-hs-mcp configure-all")
     print("  grafana-hs-mcp update")
     print("  grafana-hs-mcp run")
 
@@ -219,6 +281,45 @@ def _prompt_config(cfg: Config | None) -> Config:
         loki_datasource_uid=loki_uid,
         profile_dir=profile_dir,
     )
+
+
+def _read_json_config(path: Path) -> dict:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text())
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(
+            f"Could not parse {path}. Please fix the JSON manually and run this command again."
+        ) from exc
+
+
+def _write_json_config(path: Path, data: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2) + "\n")
+
+
+def _upsert_toml_table(text: str, table: str, body: str) -> str:
+    lines = text.splitlines()
+    output: list[str] = []
+    skipping = False
+    table_header = f"[{table}]"
+
+    for line in lines:
+        stripped = line.strip()
+        if stripped == table_header:
+            skipping = True
+            continue
+        if skipping and re.match(r"^\[[^]]+\]$", stripped):
+            skipping = False
+        if not skipping:
+            output.append(line)
+
+    base = "\n".join(output).rstrip()
+    if base:
+        base += "\n\n"
+    return f"{base}{table_header}\n{body}\n"
 
 
 def _source(env_name: str, has_config: bool) -> str:

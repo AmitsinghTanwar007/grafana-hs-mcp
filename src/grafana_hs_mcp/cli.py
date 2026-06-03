@@ -3,10 +3,9 @@ from __future__ import annotations
 import argparse
 import logging
 import os
-import sys
 from pathlib import Path
 
-from .auth import can_use_headed_browser, ensure_playwright_chromium, setup_profile
+from .auth import ensure_playwright_chromium, setup_profile
 from .config import Config, CONFIG_FILE, PROFILE_DIR, load_config, save_config
 from .grafana_client import GrafanaClient
 from .server import run as run_server
@@ -52,12 +51,6 @@ def main(argv: list[str] | None = None) -> None:
 def do_setup(args) -> None:
     grafana_url = args.grafana_url or input(f"Grafana URL [{DEFAULT_GRAFANA_URL}]: ").strip() or DEFAULT_GRAFANA_URL
     profile_dir = Path(args.profile_dir).expanduser()
-
-    if not args.skip_browser and not args.headless and not can_use_headed_browser():
-        print("No Linux DISPLAY/WAYLAND_DISPLAY found, so a headed browser cannot open here.", file=sys.stderr)
-        print("Run this command on a desktop Linux session, or start an Xvfb display first.", file=sys.stderr)
-        print("Example: DISPLAY=:200 grafana-hs-mcp setup", file=sys.stderr)
-        sys.exit(1)
 
     cfg = Config(
         grafana_url=grafana_url.rstrip("/"),

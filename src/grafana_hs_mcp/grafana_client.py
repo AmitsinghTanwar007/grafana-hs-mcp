@@ -13,27 +13,13 @@ from .config import Config
 
 logger = logging.getLogger(__name__)
 
-_BLOCKED_SQL_KEYWORDS = {
-    "insert",
-    "update",
-    "delete",
-    "drop",
-    "truncate",
-    "alter",
-    "create",
-    "replace",
-    "grant",
-    "revoke",
-}
-
 
 def _assert_select_only(sql: str) -> None:
     """Reject any SQL that is not a read-only SELECT statement."""
-    first_word = sql.strip().split()[0].lower() if sql.strip() else ""
-    if first_word in _BLOCKED_SQL_KEYWORDS:
+    sql_clean = sql.strip().lower()
+    if not sql_clean.startswith("select"):
         raise ValueError(
-            f"Only SELECT queries are allowed. Got: {first_word.upper()}. "
-            "query_postgres is read-only for safety."
+            "Only SELECT queries are allowed. query_postgres is read-only for safety."
         )
 
 

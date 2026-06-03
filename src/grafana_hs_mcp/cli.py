@@ -17,7 +17,7 @@ from .config import APP_DIR, Config, CONFIG_FILE, PROFILE_DIR, load_config, save
 from .grafana_client import GrafanaClient
 
 
-DEFAULT_GRAFANA_URL = "https://grafana.internal.staging.in1.hyperswitch.net"
+DEFAULT_GRAFANA_URL = ""
 REPO_URL = "git+https://github.com/AmitsinghTanwar007/grafana-hs-mcp.git"
 
 
@@ -101,7 +101,11 @@ def main(argv: list[str] | None = None) -> None:
 
 
 def do_setup(args) -> None:
-    grafana_url = args.grafana_url or input(f"Grafana URL [{DEFAULT_GRAFANA_URL}]: ").strip() or DEFAULT_GRAFANA_URL
+    default_url = args.grafana_url or os.getenv("GRAFANA_URL", "")
+    prompt = f"Grafana URL [{default_url}]: " if default_url else "Grafana URL: "
+    grafana_url = args.grafana_url or input(prompt).strip() or default_url
+    if not grafana_url:
+        raise SystemExit("Grafana URL is required. Example: https://grafana.example.com")
     profile_dir = Path(args.profile_dir).expanduser()
     _assert_grafana_reachable(grafana_url)
 
@@ -323,14 +327,17 @@ def _print_env(cfg: Config | None, config_exists: bool, show_secrets: bool) -> N
 
 
 def _prompt_config(cfg: Config | None) -> Config:
-    current_url = cfg.grafana_url if cfg else DEFAULT_GRAFANA_URL
+    current_url = cfg.grafana_url if cfg else os.getenv("GRAFANA_URL", "")
     current_loki_uid = cfg.loki_datasource_uid if cfg else "loki"
     current_profile_dir = cfg.profile_dir if cfg else PROFILE_DIR
 
     print()
     print("Update config values. Press Enter to keep the current value.")
 
-    grafana_url = input(f"Grafana URL [{current_url}]: ").strip() or current_url
+    url_prompt = f"Grafana URL [{current_url}]: " if current_url else "Grafana URL: "
+    grafana_url = input(url_prompt).strip() or current_url
+    if not grafana_url:
+        raise SystemExit("Grafana URL is required. Example: https://grafana.example.com")
     loki_uid = input(f"Loki datasource UID [{current_loki_uid}]: ").strip() or current_loki_uid
     profile_dir_raw = input(f"Playwright profile dir [{current_profile_dir}]: ").strip()
     profile_dir = Path(profile_dir_raw).expanduser() if profile_dir_raw else current_profile_dir

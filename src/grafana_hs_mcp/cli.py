@@ -38,38 +38,73 @@ CURSOR_CONFIG_FILE = Path(os.getenv("CURSOR_CONFIG_FILE", "~/.cursor/mcp.json"))
 CODEX_CONFIG_FILE = Path(os.getenv("CODEX_CONFIG_FILE", "~/.codex/config.toml")).expanduser()
 
 
+_DESCRIPTION = "MCP server for Grafana — query Loki logs and PostgreSQL via your AI assistant."
+
+_EPILOG = """
+commands:
+  Setup & Verification:
+    setup                 Configure Grafana URL and authenticate via browser SSO
+    doctor                Verify config, auth, and Grafana connectivity
+    env                   Show current config and environment values
+    env --interactive     View and interactively edit config, then run doctor
+
+  AI Client Integration:
+    configure-opencode    Add grafana-hs-mcp to opencode MCP config
+    configure-claude      Add grafana-hs-mcp to Claude Desktop MCP config
+    configure-claude-code Add grafana-hs-mcp to Claude Code (CLI) MCP config
+    configure-cursor      Add grafana-hs-mcp to Cursor MCP config
+    configure-codex       Add grafana-hs-mcp to Codex MCP config
+    configure-all         Configure all supported AI clients at once
+
+  Maintenance:
+    update                Update to latest version from GitHub
+    cleanup               Remove local data files and browser profile
+    cleanup --browser-cache  Also remove Playwright browser cache
+    run                   Start MCP server over stdio (used by AI clients)
+
+examples:
+  grafana-hs-mcp setup                 # First-time setup
+  grafana-hs-mcp doctor                # Check everything works
+  grafana-hs-mcp env --interactive     # View and edit config
+  grafana-hs-mcp configure-all         # Register with all AI clients
+  grafana-hs-mcp update                # Update to latest version
+"""
+
+
 def main(argv: list[str] | None = None) -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
-    parser = argparse.ArgumentParser(prog="grafana-hs-mcp")
-    subparsers = parser.add_subparsers(dest="command")
+    parser = argparse.ArgumentParser(
+        prog="grafana-hs-mcp",
+        description=_DESCRIPTION,
+        epilog=_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    subparsers = parser.add_subparsers(dest="command", metavar="command")
 
-    setup_cmd = subparsers.add_parser("setup", help="Configure Grafana URL and create Playwright SSO profile")
-    setup_cmd.add_argument("--grafana-url", default=None)
-    setup_cmd.add_argument("--loki-datasource-uid", default="loki")
-    setup_cmd.add_argument("--profile-dir", default=str(PROFILE_DIR), help="Playwright profile directory")
-    setup_cmd.add_argument("--skip-browser", action="store_true", help="Only save config; useful when reusing an existing profile")
-    setup_cmd.add_argument("--headless", action="store_true", help="Run browser headless; useful only if profile is already valid")
+    setup_cmd = subparsers.add_parser("setup", help="Configure Grafana URL and authenticate via browser SSO")
+    setup_cmd.add_argument("--grafana-url", default=None, help="Grafana base URL (prompted if not given)")
+    setup_cmd.add_argument("--loki-datasource-uid", default="loki", help="Loki datasource UID (default: loki)")
+    setup_cmd.add_argument("--profile-dir", default=str(PROFILE_DIR), help="Playwright browser profile directory")
+    setup_cmd.add_argument("--skip-browser", action="store_true", help="Only save config; skip browser login (reuse existing profile)")
+    setup_cmd.add_argument("--headless", action="store_true", help="Run browser headless (only works if profile is already valid)")
 
-    env_cmd = subparsers.add_parser("env", help="Show effective config/env values")
-    env_cmd.add_argument("--interactive", "-i", action="store_true", help="Show config, offer edits, then optionally run doctor")
+    env_cmd = subparsers.add_parser("env", help="Show current config and environment values")
+    env_cmd.add_argument("--interactive", "-i", action="store_true", help="Interactively edit config values, then optionally run doctor")
     env_cmd.add_argument("--show-secrets", action="store_true", help="Show secret values instead of masking them")
 
-    subparsers.add_parser("doctor", help="Verify config, auth, and Grafana access")
+    subparsers.add_parser("doctor", help="Verify config, auth, and Grafana connectivity")
     subparsers.add_parser("configure-opencode", help="Add grafana-hs-mcp to opencode MCP config")
     subparsers.add_parser("configure-claude", help="Add grafana-hs-mcp to Claude Desktop MCP config")
-    subparsers.add_parser("configure-claude-code", help="Add grafana-hs-mcp to Claude Code MCP config")
+    subparsers.add_parser("configure-claude-code", help="Add grafana-hs-mcp to Claude Code (CLI) MCP config")
     subparsers.add_parser("configure-cursor", help="Add grafana-hs-mcp to Cursor MCP config")
     subparsers.add_parser("configure-codex", help="Add grafana-hs-mcp to Codex MCP config")
-    subparsers.add_parser("configure-all", help="Configure all supported AI clients")
-    subparsers.add_parser("update", help="Update grafana-hs-mcp to the latest GitHub version")
-    cleanup_cmd = subparsers.add_parser(
-        "cleanup",
-        help="Remove local files; add --browser-cache to remove Playwright cache",
-    )
-    cleanup_cmd.add_argument("--yes", "-y", action="store_true", help="Skip confirmation")
-    cleanup_cmd.add_argument("--browser-cache", action="store_true", help="Also remove Playwright browser cache")
-    subparsers.add_parser("run", help="Run MCP server over stdio")
+    subparsers.add_parser("configure-all", help="Configure all supported AI clients at once")
+    subparsers.add_parser("update", help="Update grafana-hs-mcp to the latest version from GitHub")
+    cleanup_cmd = subparsers.add_parser("cleanup", help="Remove local data files and browser profile")
+    cleanup_cmd.add_argument("--yes", "-y", action="store_true", help="Skip confirmation prompt")
+    cleanup_cmd.add_argument("--browser-cache", action="store_true", help="Also remove Playwright browser cache (~/.cache/ms-playwright)")
+    subparsers.add_parser("run", help="Start MCP server over stdio (used by AI clients)")
 
     args = parser.parse_args(argv)
 

@@ -108,34 +108,38 @@ def main(argv: list[str] | None = None) -> None:
 
     args = parser.parse_args(argv)
 
-    if args.command == "setup":
-        do_setup(args)
-    elif args.command == "env":
-        do_env(args)
-    elif args.command == "doctor":
-        do_doctor()
-    elif args.command == "configure-opencode":
-        do_configure_opencode()
-    elif args.command == "configure-claude":
-        do_configure_claude()
-    elif args.command == "configure-claude-code":
-        do_configure_claude_code()
-    elif args.command == "configure-cursor":
-        do_configure_cursor()
-    elif args.command == "configure-codex":
-        do_configure_codex()
-    elif args.command == "configure-all":
-        do_configure_all()
-    elif args.command == "update":
-        do_update()
-    elif args.command == "cleanup":
-        do_cleanup(args)
-    elif args.command == "run":
-        from .server import run as run_server
-        run_server()
-    else:
-        from .server import run as run_server
-        run_server()
+    try:
+        if args.command == "setup":
+            do_setup(args)
+        elif args.command == "env":
+            do_env(args)
+        elif args.command == "doctor":
+            do_doctor()
+        elif args.command == "configure-opencode":
+            do_configure_opencode()
+        elif args.command == "configure-claude":
+            do_configure_claude()
+        elif args.command == "configure-claude-code":
+            do_configure_claude_code()
+        elif args.command == "configure-cursor":
+            do_configure_cursor()
+        elif args.command == "configure-codex":
+            do_configure_codex()
+        elif args.command == "configure-all":
+            do_configure_all()
+        elif args.command == "update":
+            do_update()
+        elif args.command == "cleanup":
+            do_cleanup(args)
+        elif args.command == "run":
+            from .server import run as run_server
+            run_server()
+        else:
+            from .server import run as run_server
+            run_server()
+    except (KeyboardInterrupt, EOFError):
+        print("\nCancelled.")
+        raise SystemExit(1)
 
 
 def do_setup(args) -> None:

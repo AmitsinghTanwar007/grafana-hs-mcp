@@ -215,7 +215,8 @@ class GrafanaClient:
             raise
 
     # ------------------------------------------------------------------
-    # Public: search_loki — progressive range expansion + chunked fallback
+    # Public: search_loki — progressive range expansion only
+    # (chunking is only for query_loki when the user gives an explicit range)
     # ------------------------------------------------------------------
 
     _SEARCH_RANGES = ["now-2h", "now-6h", "now-24h", "now-3d", "now-7d"]
@@ -229,11 +230,10 @@ class GrafanaClient:
         """
         Search Loki with automatic range expansion.
 
-        Tries progressively wider windows (2h → 6h → 24h → 3d → 7d).
-        If a range is too large and causes a 400/500, it falls back to
-        chunked mode for that range, returning a count-per-chunk overview
-        with up to 20 sample lines.
-        Stops as soon as results are found.
+        Tries progressively wider windows (2h → 6h → 24h → 3d → 7d) and
+        stops as soon as results are found. On any error for a given range,
+        skips to the next wider range rather than chunking — chunking only
+        applies in query_loki when the user gives an explicit large range.
         """
         uid = datasource_uid or self.config.loki_datasource_uid
         end_dt = parse_time("now")
@@ -243,25 +243,15 @@ class GrafanaClient:
             start_dt = parse_time(range_str)
             try:
                 result = self._query_loki_raw(query, start_dt, end_dt, capped, uid)
-            except requests.HTTPError as exc:
-                if exc.response is not None and exc.response.status_code in (400, 500):
-                    logger.warning(
-                        "search_loki range %s caused %s; trying chunked",
-                        range_str,
-                        exc.response.status_code,
-                    )
-                    result = self._query_loki_chunked(
-                        query, start_dt, end_dt, capped, uid
-                    )
-                else:
-                    logger.warning("search_loki range %s failed: %s", range_str, exc)
-                    continue
             except Exception as exc:
-                logger.warning("search_loki range %s failed: %s", range_str, exc)
+                logger.warning(
+                    "search_loki: range %s failed (%s), trying next wider range",
+                    range_str,
+                    exc,
+                )
                 continue
 
-            count = result.get("total_count", result.get("count", 0))
-            if count > 0:
+            if result["count"] > 0:
                 result["searched_range"] = range_str
                 return result
 

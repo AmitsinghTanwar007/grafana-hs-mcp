@@ -144,12 +144,20 @@ class GrafanaClient:
 
             logger.debug("search_loki: no results in %s, widening range", range_str)
 
-        # Nothing found across all ranges
+        # Nothing found across all automatic ranges — ask user for a hint
         return {
             "count": 0,
             "lines": [],
             "searched_range": self._SEARCH_RANGES[-1],
-            "note": "No results found across the last 7 days.",
+            "needs_user_input": True,
+            "ask_user": (
+                "No results found in the last 7 days. "
+                "Do you have a rough idea when this occurred? "
+                "For example: '2 weeks ago', 'around Nov 20–25', 'about 3 weeks ago', "
+                "or an exact range like 'May 1 to May 10'. "
+                "Once you tell me, I will search that specific window using query_loki "
+                "with start='now-Xd' and end='now-Yd', or ISO dates like '2025-05-01'."
+            ),
         }
 
     def list_loki_labels(
@@ -237,7 +245,11 @@ def parse_time(value: str) -> datetime:
             return now - timedelta(hours=amount)
         if unit == "d":
             return now - timedelta(days=amount)
-        raise ValueError(f"Unsupported relative time unit: {unit}")
+        if unit == "w":
+            return now - timedelta(weeks=amount)
+        raise ValueError(
+            f"Unsupported relative time unit: {unit!r}. Use m, h, d, or w."
+        )
     parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=timezone.utc)

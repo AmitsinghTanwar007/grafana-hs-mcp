@@ -23,6 +23,38 @@ def _assert_select_only(sql: str) -> None:
         )
 
 
+def _chunk_size(start_dt: datetime, end_dt: datetime) -> timedelta:
+    """Return an appropriate chunk size based on the total range duration.
+
+    >5d  → 1-day chunks   (e.g. now-30d to now-20d → 10 chunks)
+    >1d  → 6-hour chunks  (e.g. 3-day range → 12 chunks)
+    >6h  → 1-hour chunks  (e.g. 12-hour range → 12 chunks)
+    ≤6h  → 30-min chunks
+    """
+    span = end_dt - start_dt
+    if span > timedelta(days=5):
+        return timedelta(days=1)
+    if span > timedelta(days=1):
+        return timedelta(hours=6)
+    if span > timedelta(hours=6):
+        return timedelta(hours=1)
+    return timedelta(minutes=30)
+
+
+def _iter_chunks(
+    start_dt: datetime, end_dt: datetime
+) -> list[tuple[datetime, datetime]]:
+    """Split [start_dt, end_dt] into chunks; returns list of (chunk_start, chunk_end)."""
+    size = _chunk_size(start_dt, end_dt)
+    chunks = []
+    cur = start_dt
+    while cur < end_dt:
+        nxt = min(cur + size, end_dt)
+        chunks.append((cur, nxt))
+        cur = nxt
+    return chunks
+
+
 class GrafanaClient:
     def __init__(self, config: Config):
         self.config = config
@@ -78,17 +110,18 @@ class GrafanaClient:
             for ds in data
         ]
 
-    def query_loki(
+    # ------------------------------------------------------------------
+    # Internal: single raw Loki query (raises on HTTP error)
+    # ------------------------------------------------------------------
+
+    def _query_loki_raw(
         self,
         query: str,
-        start: str = "now-2h",
-        end: str = "now",
-        limit: int = 1000,
-        datasource_uid: str | None = None,
+        start_dt: datetime,
+        end_dt: datetime,
+        limit: int,
+        uid: str,
     ) -> dict[str, Any]:
-        start_dt = parse_time(start)
-        end_dt = parse_time(end)
-        uid = datasource_uid or self.config.loki_datasource_uid
         path = f"/api/datasources/uid/{uid}/resources/query_range"
         params = {
             "query": query,
@@ -100,7 +133,91 @@ class GrafanaClient:
         data = self.request("GET", path, params=params, timeout=45).json()
         return flatten_loki_response(data)
 
-    # Progressive ranges tried in order: recent-first, widening until results found
+    # ------------------------------------------------------------------
+    # Internal: chunked query — splits range on error or large spans
+    # ------------------------------------------------------------------
+
+    def _query_loki_chunked(
+        self,
+        query: str,
+        start_dt: datetime,
+        end_dt: datetime,
+        limit: int,
+        uid: str,
+    ) -> dict[str, Any]:
+        chunks = _iter_chunks(start_dt, end_dt)
+        chunk_summary: list[dict[str, Any]] = []
+        sample_lines: list[dict[str, Any]] = []
+        total_count = 0
+        chunks_with_results = 0
+        per_chunk_limit = max(limit // max(len(chunks), 1), 50)
+
+        for chunk_start, chunk_end in chunks:
+            label = (
+                f"{chunk_start.strftime('%Y-%m-%d %H:%M')} → "
+                f"{chunk_end.strftime('%Y-%m-%d %H:%M')} UTC"
+            )
+            try:
+                result = self._query_loki_raw(
+                    query, chunk_start, chunk_end, per_chunk_limit, uid
+                )
+                count = result["count"]
+                total_count += count
+                if count > 0:
+                    chunks_with_results += 1
+                    if len(sample_lines) < 20:
+                        sample_lines.extend(result["lines"][: 20 - len(sample_lines)])
+                chunk_summary.append({"range": label, "count": count, "error": None})
+            except Exception as exc:
+                logger.warning("Chunk %s failed: %s", label, exc)
+                chunk_summary.append({"range": label, "count": 0, "error": str(exc)})
+
+        return {
+            "mode": "chunked",
+            "total_count": total_count,
+            "chunks_searched": len(chunks),
+            "chunks_with_results": chunks_with_results,
+            "chunk_summary": chunk_summary,
+            "sample_lines": sample_lines,
+            "note": (
+                f"Range was too large for a single query; "
+                f"split into {len(chunks)} chunks of "
+                f"{_chunk_size(start_dt, end_dt)}."
+            ),
+        }
+
+    # ------------------------------------------------------------------
+    # Public: query_loki — single query with automatic chunked fallback
+    # ------------------------------------------------------------------
+
+    def query_loki(
+        self,
+        query: str,
+        start: str = "now-2h",
+        end: str = "now",
+        limit: int = 1000,
+        datasource_uid: str | None = None,
+    ) -> dict[str, Any]:
+        start_dt = parse_time(start)
+        end_dt = parse_time(end)
+        uid = datasource_uid or self.config.loki_datasource_uid
+        capped = min(max(int(limit), 1), 5000)
+
+        try:
+            return self._query_loki_raw(query, start_dt, end_dt, capped, uid)
+        except requests.HTTPError as exc:
+            if exc.response is not None and exc.response.status_code in (400, 500):
+                logger.warning(
+                    "query_loki single-shot failed (%s); switching to chunked mode",
+                    exc.response.status_code,
+                )
+                return self._query_loki_chunked(query, start_dt, end_dt, capped, uid)
+            raise
+
+    # ------------------------------------------------------------------
+    # Public: search_loki — progressive range expansion + chunked fallback
+    # ------------------------------------------------------------------
+
     _SEARCH_RANGES = ["now-2h", "now-6h", "now-24h", "now-3d", "now-7d"]
 
     def search_loki(
@@ -112,39 +229,45 @@ class GrafanaClient:
         """
         Search Loki with automatic range expansion.
 
-        Tries progressively wider time windows (2h → 6h → 24h → 3d → 7d)
-        and stops as soon as results are found.  Returns the matched lines
-        plus the range that was actually searched.
+        Tries progressively wider windows (2h → 6h → 24h → 3d → 7d).
+        If a range is too large and causes a 400/500, it falls back to
+        chunked mode for that range, returning a count-per-chunk overview
+        with up to 20 sample lines.
+        Stops as soon as results are found.
         """
         uid = datasource_uid or self.config.loki_datasource_uid
-        path = f"/api/datasources/uid/{uid}/resources/query_range"
         end_dt = parse_time("now")
-        end_ns = int(end_dt.timestamp() * 1_000_000_000)
-        capped_limit = min(max(int(limit), 1), 5000)
+        capped = min(max(int(limit), 1), 5000)
 
         for range_str in self._SEARCH_RANGES:
             start_dt = parse_time(range_str)
-            params = {
-                "query": query,
-                "start": int(start_dt.timestamp() * 1_000_000_000),
-                "end": end_ns,
-                "limit": capped_limit,
-                "direction": "forward",
-            }
             try:
-                data = self.request("GET", path, params=params, timeout=45).json()
+                result = self._query_loki_raw(query, start_dt, end_dt, capped, uid)
+            except requests.HTTPError as exc:
+                if exc.response is not None and exc.response.status_code in (400, 500):
+                    logger.warning(
+                        "search_loki range %s caused %s; trying chunked",
+                        range_str,
+                        exc.response.status_code,
+                    )
+                    result = self._query_loki_chunked(
+                        query, start_dt, end_dt, capped, uid
+                    )
+                else:
+                    logger.warning("search_loki range %s failed: %s", range_str, exc)
+                    continue
             except Exception as exc:
-                logger.warning("search_loki failed for range %s: %s", range_str, exc)
+                logger.warning("search_loki range %s failed: %s", range_str, exc)
                 continue
 
-            result = flatten_loki_response(data)
-            if result["count"] > 0:
+            count = result.get("total_count", result.get("count", 0))
+            if count > 0:
                 result["searched_range"] = range_str
                 return result
 
             logger.debug("search_loki: no results in %s, widening range", range_str)
 
-        # Nothing found across all automatic ranges — ask user for a hint
+        # Exhausted all automatic ranges — ask the user for a hint
         return {
             "count": 0,
             "lines": [],
@@ -271,3 +394,12 @@ def flatten_loki_response(data: dict[str, Any]) -> dict[str, Any]:
                 }
             )
     return {"count": len(lines), "lines": lines}
+
+
+def _assert_select_only(sql: str) -> None:
+    """Reject any SQL that is not a read-only SELECT statement."""
+    sql_clean = sql.strip().lower()
+    if not sql_clean.startswith("select"):
+        raise ValueError(
+            "Only SELECT queries are allowed. query_postgres is read-only for safety."
+        )

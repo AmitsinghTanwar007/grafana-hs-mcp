@@ -9,6 +9,7 @@ from pathlib import Path
 APP_DIR = Path(os.getenv("GRAFANA_HS_MCP_HOME", "~/.grafana-hs-mcp")).expanduser()
 CONFIG_FILE = APP_DIR / "config.json"
 PROFILE_DIR = APP_DIR / "profile"
+SESSION_FILE = APP_DIR / "session.json"
 
 
 @dataclass(frozen=True)

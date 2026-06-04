@@ -5,19 +5,150 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 import urllib.parse
+import webbrowser
 from pathlib import Path
 from typing import Optional
 
 import requests
 
-from .config import Config, PROFILE_DIR, ensure_app_dir
+from .config import Config, PROFILE_DIR, SESSION_FILE, ensure_app_dir
 
 
 logger = logging.getLogger(__name__)
 
 NAV_TIMEOUT_MS = 60_000
 SETTLE_TIMEOUT_MS = 3_000
+
+
+def load_saved_cookie() -> str | None:
+    if not SESSION_FILE.exists():
+        return None
+    try:
+        import json
+
+        data = json.loads(SESSION_FILE.read_text())
+    except Exception as exc:
+        logger.warning("Could not read saved Grafana session: %s", exc)
+        return None
+
+    expires = data.get("expires")
+    if expires and expires <= int(time.time()):
+        logger.info("Saved Grafana session expired")
+        return None
+    return data.get("cookie")
+
+
+def save_cookie(
+    cookie: str, source: str = "unknown", expires: int | None = None
+) -> None:
+    import json
+
+    ensure_app_dir()
+    if expires is not None and expires <= 0:
+        expires = None
+    SESSION_FILE.write_text(
+        json.dumps(
+            {
+                "cookie": cookie,
+                "source": source,
+                "expires": expires,
+                "saved_at": int(time.time()),
+            },
+            indent=2,
+        )
+        + "\n"
+    )
+    SESSION_FILE.chmod(0o600)
+
+
+def extract_cookie_from_browsers(
+    grafana_url: str,
+) -> tuple[str, str, int | None] | None:
+    """Try to read an existing Grafana session from the user's real browsers."""
+    try:
+        import browser_cookie3
+    except ImportError:
+        logger.info("browser-cookie3 is not installed; skipping browser cookie import")
+        return None
+
+    hostname = urllib.parse.urlparse(grafana_url).hostname
+    if not hostname:
+        return None
+
+    loaders = [
+        ("Chrome", getattr(browser_cookie3, "chrome", None)),
+        ("Chromium", getattr(browser_cookie3, "chromium", None)),
+        ("Brave", getattr(browser_cookie3, "brave", None)),
+        ("Edge", getattr(browser_cookie3, "edge", None)),
+        ("Firefox", getattr(browser_cookie3, "firefox", None)),
+        ("Vivaldi", getattr(browser_cookie3, "vivaldi", None)),
+        ("Opera", getattr(browser_cookie3, "opera", None)),
+        ("Safari", getattr(browser_cookie3, "safari", None)),
+    ]
+
+    for browser_name, loader in loaders:
+        if loader is None:
+            continue
+        try:
+            jar = loader(domain_name=hostname)
+        except Exception as exc:
+            logger.debug("Could not read %s cookies: %s", browser_name, exc)
+            continue
+
+        cookies = list(jar)
+        session = next((c for c in cookies if c.name == "grafana_session"), None)
+        if not session:
+            continue
+        if session.expires and session.expires <= int(time.time()):
+            logger.debug("%s Grafana session cookie is expired", browser_name)
+            continue
+
+        parts = [f"grafana_session={session.value}"]
+        expiry = next((c for c in cookies if c.name == "grafana_session_expiry"), None)
+        if expiry:
+            parts.append(f"grafana_session_expiry={expiry.value}")
+        return "; ".join(parts), browser_name, session.expires
+
+    return None
+
+
+def setup_cookie_from_existing_browser(grafana_url: str) -> bool:
+    """Use the user's normal browser session instead of creating a new profile."""
+    extracted = extract_cookie_from_browsers(grafana_url)
+    if extracted:
+        cookie, browser_name, expires = extracted
+        save_cookie(cookie, source=browser_name, expires=expires)
+        print(
+            f"Found existing Grafana session in {browser_name}; saved session cookie."
+        )
+        return True
+
+    print("No existing Grafana session cookie found in your installed browsers.")
+    answer = (
+        input(
+            "Open Grafana in your default browser, log in there, then retry cookie import? [Y/n]: "
+        )
+        .strip()
+        .lower()
+    )
+    if answer in {"n", "no"}:
+        return False
+
+    webbrowser.open(grafana_url)
+    input("After Grafana loads in your normal browser, press Enter to continue: ")
+    extracted = extract_cookie_from_browsers(grafana_url)
+    if extracted:
+        cookie, browser_name, expires = extracted
+        save_cookie(cookie, source=browser_name, expires=expires)
+        print(f"Imported Grafana session from {browser_name}; saved session cookie.")
+        return True
+
+    print(
+        "Could not import a Grafana session from your browser. Falling back to isolated Playwright profile."
+    )
+    return False
 
 
 def find_system_chrome() -> Path | None:
@@ -112,21 +243,42 @@ class AuthManager:
         if self.config.api_token:
             return self.session
 
+        cookie = load_saved_cookie()
+        if cookie:
+            self.seed_session_cookies(cookie)
+            return self.session
+
+        extracted = extract_cookie_from_browsers(self.config.grafana_url)
+        if extracted:
+            cookie, browser_name, expires = extracted
+            save_cookie(cookie, source=browser_name, expires=expires)
+            self.seed_session_cookies(cookie)
+            return self.session
+
         cookie = self.get_fresh_cookie(headless=True)
         if not cookie:
             raise RuntimeError(
-                "Could not get Grafana cookie from Playwright profile. "
-                "Run `grafana-hs-mcp setup` again."
+                "Could not get Grafana cookie from saved session, existing browsers, "
+                "or Playwright profile. Run `grafana-hs-mcp setup` again."
             )
+        save_cookie(cookie, source="playwright-profile")
         self.seed_session_cookies(cookie)
         return self.session
 
     def refresh_after_401(self) -> bool:
         if self.config.api_token:
             return False
+        extracted = extract_cookie_from_browsers(self.config.grafana_url)
+        if extracted:
+            cookie, browser_name, expires = extracted
+            save_cookie(cookie, source=browser_name, expires=expires)
+            self.seed_session_cookies(cookie)
+            return True
+
         cookie = self.get_fresh_cookie(headless=True)
         if not cookie:
             return False
+        save_cookie(cookie, source="playwright-profile")
         self.seed_session_cookies(cookie)
         return True
 
@@ -259,13 +411,21 @@ def setup_profile(
         input("Press Enter after login is complete: ")
 
         cookies = context.cookies()
-        has_session = any(c["name"] == "grafana_session" for c in cookies)
+        session = next((c for c in cookies if c["name"] == "grafana_session"), None)
+        expiry = next(
+            (c for c in cookies if c["name"] == "grafana_session_expiry"), None
+        )
         context.close()
 
-    if not has_session:
+    if not session:
         raise RuntimeError(
             "Grafana session cookie not found. Login may not have completed."
         )
+
+    cookie = f"grafana_session={session['value']}"
+    if expiry:
+        cookie += f"; grafana_session_expiry={expiry['value']}"
+    save_cookie(cookie, source="playwright-profile", expires=session.get("expires"))
 
 
 def can_use_headed_browser() -> bool:

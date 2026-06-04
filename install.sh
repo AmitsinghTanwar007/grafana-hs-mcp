@@ -93,7 +93,7 @@ if [ ! -d "$VENV_DIR" ]; then
 fi
 
 step 3 "Installing grafana-hs-mcp"
-"$VENV_DIR/bin/python" -m pip install --upgrade pip >/dev/null
+"$VENV_DIR/bin/python" -m pip install --upgrade pip setuptools wheel >/dev/null
 "$VENV_DIR/bin/python" -m pip install --upgrade "$REPO_URL"
 
 step 4 "Creating command"

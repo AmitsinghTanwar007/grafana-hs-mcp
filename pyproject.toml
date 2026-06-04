@@ -1,13 +1,14 @@
 [project]
 name = "grafana-hs-mcp"
-version = "0.1.18"
+version = "0.1.19"
 description = "MCP server for querying Grafana through Playwright-backed SSO auth"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-  "mcp>=1.0.0",
-  "playwright>=1.40.0",
-  "requests>=2.31.0",
+  "browser-cookie3==0.20.1",
+  "mcp==1.27.2",
+  "playwright==1.60.0",
+  "requests==2.34.2",
 ]
 
 [project.scripts]

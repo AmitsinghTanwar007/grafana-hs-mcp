@@ -12,8 +12,20 @@ from pathlib import Path
 
 import requests
 
-from .auth import ensure_playwright_chromium, setup_profile
-from .config import APP_DIR, Config, CONFIG_FILE, PROFILE_DIR, load_config, save_config
+from .auth import (
+    ensure_playwright_chromium,
+    setup_cookie_from_existing_browser,
+    setup_profile,
+)
+from .config import (
+    APP_DIR,
+    CONFIG_FILE,
+    PROFILE_DIR,
+    SESSION_FILE,
+    Config,
+    load_config,
+    save_config,
+)
 from .grafana_client import GrafanaClient
 
 
@@ -113,7 +125,7 @@ def main(argv: list[str] | None = None) -> None:
     setup_cmd.add_argument(
         "--skip-browser",
         action="store_true",
-        help="Only save config; skip browser login (reuse existing profile)",
+        help="Only save config; skip browser login/import (reuse existing session/profile)",
     )
     setup_cmd.add_argument(
         "--headless",
@@ -232,10 +244,15 @@ def do_setup(args) -> None:
     )
     save_config(cfg)
     print(f"Saved config: {CONFIG_FILE}")
-    ensure_playwright_chromium(interactive=True)
     if args.skip_browser:
-        print(f"Using existing Playwright profile: {cfg.profile_dir}")
+        print("Skipped browser login/import. Using existing saved session or profile.")
     else:
+        if setup_cookie_from_existing_browser(cfg.grafana_url):
+            print("Setup complete. Running doctor...")
+            do_doctor()
+            return
+
+        ensure_playwright_chromium(interactive=True)
         print(f"Creating Playwright profile: {cfg.profile_dir}")
         setup_profile(cfg.grafana_url, cfg.profile_dir, headless=args.headless)
     print("Setup complete. Running doctor...")
@@ -259,8 +276,6 @@ def do_doctor() -> None:
 
 def do_update() -> None:
     print("Updating grafana-hs-mcp...")
-    # --no-deps: only reinstall this package; skip re-downloading dependencies
-    # --force-reinstall: replace the package even if version looks the same (git installs)
     subprocess.run(
         [
             sys.executable,
@@ -268,8 +283,6 @@ def do_update() -> None:
             "pip",
             "install",
             "--upgrade",
-            "--force-reinstall",
-            "--no-deps",
             REPO_URL,
         ],
         check=True,
@@ -478,6 +491,11 @@ def _print_env(cfg: Config | None, config_exists: bool, show_secrets: bool) -> N
             "Profile exists",
             "yes" if cfg and cfg.profile_dir.exists() else "no",
             str(cfg.profile_dir if cfg else PROFILE_DIR),
+        ),
+        (
+            "Session cache exists",
+            "yes" if SESSION_FILE.exists() else "no",
+            str(SESSION_FILE),
         ),
     ]
 

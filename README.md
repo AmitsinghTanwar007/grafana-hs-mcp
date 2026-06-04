@@ -5,7 +5,7 @@ MCP server that connects your AI assistant to Grafana. Your AI can help you writ
 ## Prerequisites
 
 - Python 3.10 or later
-- Google Chrome or Chromium installed (or Playwright Chromium will be downloaded on first setup, ~300 MB)
+- Access to any browser where you can log in to Grafana (Chrome, Chromium, Brave, Edge, Firefox, Safari, etc.)
 - Access to a Grafana instance (VPN may be required)
 - One of: opencode, Claude Desktop, Claude Code, Cursor, or Codex
 
@@ -22,10 +22,19 @@ The installer creates an isolated Python environment under `~/.grafana-hs-mcp/ap
 ## Setup
 
 ```bash
-grafana-hs-mcp setup       # enter your Grafana URL, log in via browser
-grafana-hs-mcp doctor      # verify config and Grafana connectivity
+grafana-hs-mcp setup           # enter your Grafana URL; imports your existing browser session if possible
+grafana-hs-mcp doctor          # verify config and Grafana connectivity
 grafana-hs-mcp configure-all   # register with all supported AI clients
 ```
+
+During setup, the tool first tries to import an existing `grafana_session` cookie
+from your normal browser profile. If you are already logged in to Grafana in
+Chrome, Brave, Edge, Firefox, Safari, etc., setup can finish without opening a
+new isolated browser profile.
+
+If no existing session is found, setup opens Grafana in your default browser so
+you can log in there, then retries the cookie import. The isolated Playwright
+profile flow is only used as a fallback.
 
 Turn on VPN before running `setup` or `doctor` if your Grafana requires VPN access.
 
@@ -115,7 +124,7 @@ grafana-hs-mcp cleanup --browser-cache  # also remove Playwright browser cache
 
 ## Security notes
 
-- **Grafana session cookies** are stored in a local Playwright browser profile under `~/.grafana-hs-mcp/profile/`. Do not share this directory.
+- **Grafana session cookies** are stored in `~/.grafana-hs-mcp/session.json` after setup. If the fallback Playwright profile is used, it is stored under `~/.grafana-hs-mcp/profile/`. Do not share these files/directories.
 - **API token (optional):** You can set `GRAFANA_API_TOKEN` as an environment variable instead of using browser-based SSO. The token is never written to disk by this tool.
 - **PostgreSQL queries are read-only.** The `query_postgres` tool only allows `SELECT` statements. `INSERT`, `UPDATE`, `DELETE`, `DROP`, and other write/DDL statements are blocked.
 - **VPN required** for internal Grafana instances. The tool will warn you if Grafana is unreachable before setup proceeds.

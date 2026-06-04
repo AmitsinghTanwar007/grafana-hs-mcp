@@ -100,6 +100,43 @@ class GrafanaClient:
         data = self.request("GET", path, params=params, timeout=45).json()
         return flatten_loki_response(data)
 
+    def list_loki_labels(
+        self,
+        datasource_uid: str | None = None,
+        start: str = "now-24h",
+        end: str = "now",
+    ) -> list[str]:
+        """Return all label names present in Loki for the given time range."""
+        uid = datasource_uid or self.config.loki_datasource_uid
+        path = f"/api/datasources/uid/{uid}/resources/labels"
+        start_dt = parse_time(start)
+        end_dt = parse_time(end)
+        params = {
+            "start": int(start_dt.timestamp() * 1_000_000_000),
+            "end": int(end_dt.timestamp() * 1_000_000_000),
+        }
+        data = self.request("GET", path, params=params, timeout=20).json()
+        return sorted(data.get("data", []))
+
+    def list_loki_label_values(
+        self,
+        label_name: str,
+        datasource_uid: str | None = None,
+        start: str = "now-24h",
+        end: str = "now",
+    ) -> list[str]:
+        """Return all values for a Loki label name within the given time range."""
+        uid = datasource_uid or self.config.loki_datasource_uid
+        path = f"/api/datasources/uid/{uid}/resources/label/{label_name}/values"
+        start_dt = parse_time(start)
+        end_dt = parse_time(end)
+        params = {
+            "start": int(start_dt.timestamp() * 1_000_000_000),
+            "end": int(end_dt.timestamp() * 1_000_000_000),
+        }
+        data = self.request("GET", path, params=params, timeout=20).json()
+        return sorted(data.get("data", []))
+
     def query_postgres(
         self,
         datasource_uid: str,

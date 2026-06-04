@@ -1,6 +1,6 @@
 [project]
 name = "grafana-hs-mcp"
-version = "0.1.14"
+version = "0.1.15"
 description = "MCP server for querying Grafana through Playwright-backed SSO auth"
 readme = "README.md"
 requires-python = ">=3.10"

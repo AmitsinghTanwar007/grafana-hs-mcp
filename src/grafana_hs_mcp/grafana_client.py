@@ -100,6 +100,58 @@ class GrafanaClient:
         data = self.request("GET", path, params=params, timeout=45).json()
         return flatten_loki_response(data)
 
+    # Progressive ranges tried in order: recent-first, widening until results found
+    _SEARCH_RANGES = ["now-2h", "now-6h", "now-24h", "now-3d", "now-7d"]
+
+    def search_loki(
+        self,
+        query: str,
+        limit: int = 500,
+        datasource_uid: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        Search Loki with automatic range expansion.
+
+        Tries progressively wider time windows (2h → 6h → 24h → 3d → 7d)
+        and stops as soon as results are found.  Returns the matched lines
+        plus the range that was actually searched.
+        """
+        uid = datasource_uid or self.config.loki_datasource_uid
+        path = f"/api/datasources/uid/{uid}/resources/query_range"
+        end_dt = parse_time("now")
+        end_ns = int(end_dt.timestamp() * 1_000_000_000)
+        capped_limit = min(max(int(limit), 1), 5000)
+
+        for range_str in self._SEARCH_RANGES:
+            start_dt = parse_time(range_str)
+            params = {
+                "query": query,
+                "start": int(start_dt.timestamp() * 1_000_000_000),
+                "end": end_ns,
+                "limit": capped_limit,
+                "direction": "forward",
+            }
+            try:
+                data = self.request("GET", path, params=params, timeout=45).json()
+            except Exception as exc:
+                logger.warning("search_loki failed for range %s: %s", range_str, exc)
+                continue
+
+            result = flatten_loki_response(data)
+            if result["count"] > 0:
+                result["searched_range"] = range_str
+                return result
+
+            logger.debug("search_loki: no results in %s, widening range", range_str)
+
+        # Nothing found across all ranges
+        return {
+            "count": 0,
+            "lines": [],
+            "searched_range": self._SEARCH_RANGES[-1],
+            "note": "No results found across the last 7 days.",
+        }
+
     def list_loki_labels(
         self,
         datasource_uid: str | None = None,

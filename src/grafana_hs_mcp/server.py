@@ -68,6 +68,31 @@ async def query_loki(
 
 
 @mcp.tool()
+async def search_loki(
+    query: str,
+    limit: int = 500,
+    datasource_uid: str | None = None,
+) -> dict[str, Any]:
+    """
+    Search Loki logs with automatic time range expansion.
+
+    Use this when you don't know when an event occurred. It tries progressively
+    wider windows — 2h, 6h, 24h, 3d, 7d — and stops as soon as results are
+    found. The response includes a `searched_range` field showing which window
+    produced the results.
+
+    Use query_loki instead when you already know the time range.
+    """
+    return await anyio.to_thread.run_sync(
+        lambda: get_client().search_loki(
+            query=query,
+            limit=limit,
+            datasource_uid=datasource_uid,
+        )
+    )
+
+
+@mcp.tool()
 async def list_loki_labels(
     datasource_uid: str | None = None,
     start: str = "now-24h",

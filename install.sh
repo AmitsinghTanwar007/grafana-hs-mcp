@@ -75,19 +75,45 @@ echo "Installing grafana-hs-mcp..."
 
 step 1 "Checking python3 (>=3.10 required)"
 
+_py_meets_req() {
+  local exe="$1"
+  local version major minor
+  version="$("$exe" -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null || true)"
+  major="${version%%.*}"
+  minor="${version##*.}"
+  [ -n "$major" ] || return 1
+  { [ "$major" -gt 3 ] 2>/dev/null; } || \
+  { [ "$major" -eq 3 ] && [ "$minor" -ge 10 ] 2>/dev/null; }
+}
+
 PYTHON=""
-for candidate in python3.14 python3.13 python3.12 python3.11 python3.10 python3 python; do
-  if command -v "$candidate" >/dev/null 2>&1; then
-    version="$("$candidate" -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null || true)"
-    major="${version%%.*}"
-    minor="${version##*.}"
-    if [ -n "$major" ] && [ "$major" -gt 3 ] 2>/dev/null; then
-      PYTHON="$candidate"; break
-    elif [ -n "$major" ] && [ "$major" -eq 3 ] && [ "$minor" -ge 10 ] 2>/dev/null; then
-      PYTHON="$candidate"; break
-    fi
+
+# 1) Try generic names first (covers the common case)
+for candidate in python3 python; do
+  if command -v "$candidate" >/dev/null 2>&1 && _py_meets_req "$candidate"; then
+    PYTHON="$candidate"; break
   fi
 done
+
+# 2) If generic names didn't qualify, scan every directory in PATH for
+#    versioned python3.X executables and pick the highest minor >= 10.
+if [ -z "$PYTHON" ]; then
+  best_minor=9
+  IFS=: read -ra _path_dirs <<< "$PATH"
+  for _dir in "${_path_dirs[@]}"; do
+    for _exe in "$_dir"/python3.*; do
+      [ -x "$_exe" ] || continue
+      _version="$("$_exe" -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null || true)"
+      _major="${_version%%.*}"
+      _minor="${_version##*.}"
+      if [ -n "$_major" ] && [ "$_major" -eq 3 ] && \
+         [ "$_minor" -ge 10 ] 2>/dev/null && [ "$_minor" -gt "$best_minor" ] 2>/dev/null; then
+        best_minor="$_minor"
+        PYTHON="$_exe"
+      fi
+    done
+  done
+fi
 
 if [ -z "$PYTHON" ]; then
   echo

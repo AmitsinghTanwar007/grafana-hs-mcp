@@ -73,21 +73,46 @@ print_welcome() {
 echo
 echo "Installing grafana-hs-mcp..."
 
-step 1 "Checking python3"
-if ! command -v python3 >/dev/null 2>&1; then
-  echo "python3 is required but was not found."
+step 1 "Checking python3 (>=3.10 required)"
+
+PYTHON=""
+for candidate in python3.14 python3.13 python3.12 python3.11 python3.10 python3 python; do
+  if command -v "$candidate" >/dev/null 2>&1; then
+    version="$("$candidate" -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null || true)"
+    major="${version%%.*}"
+    minor="${version##*.}"
+    if [ -n "$major" ] && [ "$major" -gt 3 ] 2>/dev/null; then
+      PYTHON="$candidate"; break
+    elif [ -n "$major" ] && [ "$major" -eq 3 ] && [ "$minor" -ge 10 ] 2>/dev/null; then
+      PYTHON="$candidate"; break
+    fi
+  fi
+done
+
+if [ -z "$PYTHON" ]; then
+  echo
+  echo "Python 3.10 or later is required but was not found."
+  echo
+  echo "  macOS:   brew install python@3.12"
+  echo "  Ubuntu:  sudo apt install python3.12"
+  echo "  Or download from https://www.python.org/downloads/"
+  echo
+  echo "Your current python3 version:"
+  python3 --version 2>/dev/null || echo "  (python3 not found)"
   exit 1
 fi
+
+echo "Using $PYTHON ($("$PYTHON" --version))"
 
 step 2 "Creating isolated environment"
 BIN_DIR="$(pick_bin_dir)"
 mkdir -p "$APP_HOME" "$BIN_DIR"
 
 if [ ! -d "$VENV_DIR" ]; then
-  if ! python3 -m venv "$VENV_DIR"; then
+  if ! "$PYTHON" -m venv "$VENV_DIR"; then
     echo
     echo "Could not create a Python virtual environment."
-    echo "On Ubuntu/Debian, install venv support with: sudo apt install python3-venv"
+    echo "On Ubuntu/Debian: sudo apt install python3.12 python3.12-venv"
     exit 1
   fi
 fi

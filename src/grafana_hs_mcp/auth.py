@@ -239,48 +239,86 @@ class AuthManager:
         if config.api_token:
             self.session.headers.update({"Authorization": f"Bearer {config.api_token}"})
 
+    def _session_is_valid(self) -> bool:
+        """Probe an *authenticated* endpoint.
+
+        `/api/health` is public, so a seeded cookie can look fine there yet be
+        rejected on real calls. `/api/user` requires a valid session, so it tells
+        us whether the cookie actually authenticates (Grafana rotates
+        `grafana_session` server-side, so a cookie copied from the browser is
+        frequently already stale).
+        """
+        try:
+            url = self.config.grafana_url.rstrip("/") + "/api/user"
+            resp = self.session.get(url, timeout=15)
+            return resp.status_code == 200
+        except requests.RequestException:
+            return False
+
+    def _try_cookie(
+        self, cookie: str, source: str, expires: Optional[int] = None
+    ) -> bool:
+        """Seed a cookie, validate it against an authenticated endpoint, and only
+        persist it if it really authenticates. Returns True on success."""
+        self.seed_session_cookies(cookie)
+        if self._session_is_valid():
+            save_cookie(cookie, source=source, expires=expires)
+            logger.info("Authenticated to Grafana via %s cookie", source)
+            return True
+        logger.warning("Cookie from %s did not authenticate (401); will escalate", source)
+        return False
+
     def ensure_authenticated(self) -> requests.Session:
         if self.config.api_token:
             return self.session
 
+        # 1. Previously-saved cookie (only trust it if it still authenticates).
         cookie = load_saved_cookie()
-        if cookie:
-            self.seed_session_cookies(cookie)
+        if cookie and self._try_cookie(cookie, source="saved"):
             return self.session
 
+        # 2. Live cookie from the user's browser.
         extracted = extract_cookie_from_browsers(self.config.grafana_url)
         if extracted:
             cookie, browser_name, expires = extracted
-            save_cookie(cookie, source=browser_name, expires=expires)
-            self.seed_session_cookies(cookie)
+            if self._try_cookie(cookie, source=browser_name, expires=expires):
+                return self.session
+
+        # 3. Browser cookie missing or stale -> real fresh login via Playwright SSO.
+        cookie = self.get_fresh_cookie(headless=True)
+        if cookie and self._try_cookie(cookie, source="playwright-profile"):
             return self.session
 
-        cookie = self.get_fresh_cookie(headless=True)
-        if not cookie:
-            raise RuntimeError(
-                "Could not get Grafana cookie from saved session, existing browsers, "
-                "or Playwright profile. Run `grafana-hs-mcp setup` again."
-            )
-        save_cookie(cookie, source="playwright-profile")
-        self.seed_session_cookies(cookie)
-        return self.session
+        raise RuntimeError(
+            "Could not obtain a valid Grafana session from a saved cookie, your "
+            "browser, or the Playwright profile. Log in to Grafana in your browser "
+            "(or run `grafana-hs-mcp setup`) and try again."
+        )
 
     def refresh_after_401(self) -> bool:
+        """Recover from a 401/403 on an authenticated request.
+
+        The current `grafana_session` is stale (Grafana rotates it server-side).
+        Re-read the browser in case it rotated to a fresh cookie, but ONLY trust a
+        cookie that actually validates; otherwise escalate to a real Playwright
+        fresh login instead of re-seeding the same dead cookie (which is what made
+        this loop forever).
+        """
         if self.config.api_token:
             return False
+
+        # 1. Browser may now hold a freshly-rotated cookie — validate before trusting.
         extracted = extract_cookie_from_browsers(self.config.grafana_url)
         if extracted:
             cookie, browser_name, expires = extracted
-            save_cookie(cookie, source=browser_name, expires=expires)
-            self.seed_session_cookies(cookie)
-            return True
+            if self._try_cookie(cookie, source=browser_name, expires=expires):
+                return True
 
+        # 2. Escalate: real fresh login via the Playwright SSO profile.
         cookie = self.get_fresh_cookie(headless=True)
-        if not cookie:
-            return False
-        save_cookie(cookie, source="playwright-profile")
-        self.seed_session_cookies(cookie)
-        return True
+        if cookie and self._try_cookie(cookie, source="playwright-profile"):
+            return True
+        return False
 
     def seed_session_cookies(self, cookie_str: str) -> None:
         domain = urllib.parse.urlparse(self.config.grafana_url).hostname or ""

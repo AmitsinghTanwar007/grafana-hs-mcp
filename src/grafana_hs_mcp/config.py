@@ -16,6 +16,7 @@ SESSION_FILE = APP_DIR / "session.json"
 class Config:
     grafana_url: str
     loki_datasource_uid: str = "loki"
+    clickhouse_datasource_uid: str | None = None
     profile_dir: Path = PROFILE_DIR
     api_token: str | None = None
 
@@ -44,6 +45,8 @@ def load_config() -> Config:
         grafana_url=grafana_url.rstrip("/"),
         loki_datasource_uid=os.getenv("GRAFANA_LOKI_DATASOURCE_UID")
         or cfg.get("loki_datasource_uid", "loki"),
+        clickhouse_datasource_uid=os.getenv("GRAFANA_CLICKHOUSE_DATASOURCE_UID")
+        or cfg.get("clickhouse_datasource_uid"),
         profile_dir=Path(profile_dir).expanduser(),
         api_token=os.getenv("GRAFANA_API_TOKEN") or cfg.get("api_token"),
     )
@@ -54,6 +57,7 @@ def save_config(config: Config) -> None:
     data = {
         "grafana_url": config.grafana_url,
         "loki_datasource_uid": config.loki_datasource_uid,
+        "clickhouse_datasource_uid": config.clickhouse_datasource_uid,
         "profile_dir": str(config.profile_dir),
     }
     CONFIG_FILE.write_text(json.dumps(data, indent=2) + "\n")

@@ -13,7 +13,10 @@ from pathlib import Path
 import requests
 
 from .auth import (
+    AuthManager,
+    can_use_headed_browser,
     ensure_playwright_chromium,
+    load_saved_cookie,
     setup_cookie_from_existing_browser,
     setup_profile,
 )
@@ -59,7 +62,7 @@ CODEX_CONFIG_FILE = Path(
 
 
 _DESCRIPTION = (
-    "MCP server for Grafana — query Loki logs and PostgreSQL via your AI assistant."
+    "MCP server for Grafana — query Loki logs, PostgreSQL, and ClickHouse via your AI assistant."
 )
 
 _EPILOG = """
@@ -116,6 +119,11 @@ def main(argv: list[str] | None = None) -> None:
         "--loki-datasource-uid",
         default="loki",
         help="Loki datasource UID (default: loki)",
+    )
+    setup_cmd.add_argument(
+        "--clickhouse-datasource-uid",
+        default=None,
+        help="Default ClickHouse datasource UID (optional)",
     )
     setup_cmd.add_argument(
         "--profile-dir",
@@ -240,6 +248,7 @@ def do_setup(args) -> None:
     cfg = Config(
         grafana_url=grafana_url.rstrip("/"),
         loki_datasource_uid=args.loki_datasource_uid,
+        clickhouse_datasource_uid=args.clickhouse_datasource_uid,
         profile_dir=profile_dir,
     )
     save_config(cfg)
@@ -247,16 +256,48 @@ def do_setup(args) -> None:
     if args.skip_browser:
         print("Skipped browser login/import. Using existing saved session or profile.")
     else:
-        if setup_cookie_from_existing_browser(cfg.grafana_url):
-            print("Setup complete. Running doctor...")
+        # Try the existing browser cookie first — but ONLY trust it if it actually
+        # authenticates. A stale/rotated grafana_session (common on staging / macOS
+        # Chrome) otherwise short-circuits setup and skips the interactive login,
+        # leaving doctor to fail with 401 and no profile to escalate to.
+        got_browser_cookie = setup_cookie_from_existing_browser(cfg.grafana_url)
+        if got_browser_cookie and _saved_cookie_authenticates(cfg):
+            print("Setup complete (existing browser session is valid). Running doctor...")
             do_doctor()
             return
 
+        if got_browser_cookie:
+            print("Existing browser cookie did not authenticate (401) — logging in fresh...")
+        else:
+            print("No usable browser session found — logging in fresh...")
+
+        if not can_use_headed_browser():
+            raise SystemExit(
+                "Browser session is invalid and no display is available for an "
+                "interactive login. Either set `api_token` in "
+                f"{CONFIG_FILE} (a Grafana service-account token), or run "
+                "`grafana-hs-mcp setup` on a machine with a browser."
+            )
+
         ensure_playwright_chromium(interactive=True)
-        print(f"Creating Playwright profile: {cfg.profile_dir}")
+        print(f"Opening a browser to log in (profile: {cfg.profile_dir})")
         setup_profile(cfg.grafana_url, cfg.profile_dir, headless=args.headless)
     print("Setup complete. Running doctor...")
     do_doctor()
+
+
+def _saved_cookie_authenticates(cfg) -> bool:
+    """True only if the just-saved browser cookie actually authenticates (200 on
+    an authenticated endpoint). Prevents a stale 401 cookie from being trusted."""
+    try:
+        cookie = load_saved_cookie()
+        if not cookie:
+            return False
+        am = AuthManager(cfg)
+        am.seed_session_cookies(cookie)
+        return am._session_is_valid()
+    except Exception:
+        return False
 
 
 def do_doctor() -> None:
@@ -468,6 +509,11 @@ def _print_env(cfg: Config | None, config_exists: bool, show_secrets: bool) -> N
             _source("GRAFANA_LOKI_DATASOURCE_UID", config_exists),
         ),
         (
+            "GRAFANA_CLICKHOUSE_DATASOURCE_UID",
+            cfg.clickhouse_datasource_uid if cfg else "",
+            _source("GRAFANA_CLICKHOUSE_DATASOURCE_UID", config_exists),
+        ),
+        (
             "GRAFANA_HS_MCP_PROFILE_DIR",
             str(cfg.profile_dir) if cfg else str(PROFILE_DIR),
             _source("GRAFANA_HS_MCP_PROFILE_DIR", config_exists),
@@ -523,6 +569,7 @@ def _print_env(cfg: Config | None, config_exists: bool, show_secrets: bool) -> N
 def _prompt_config(cfg: Config | None) -> Config:
     current_url = cfg.grafana_url if cfg else os.getenv("GRAFANA_URL", "")
     current_loki_uid = cfg.loki_datasource_uid if cfg else "loki"
+    current_clickhouse_uid = cfg.clickhouse_datasource_uid if cfg else ""
     current_profile_dir = cfg.profile_dir if cfg else PROFILE_DIR
 
     print()
@@ -537,6 +584,13 @@ def _prompt_config(cfg: Config | None) -> Config:
     loki_uid = (
         input(f"Loki datasource UID [{current_loki_uid}]: ").strip() or current_loki_uid
     )
+    clickhouse_prompt = (
+        f"ClickHouse datasource UID [{current_clickhouse_uid}]: "
+        if current_clickhouse_uid else
+        "ClickHouse datasource UID [optional]: "
+    )
+    clickhouse_uid_raw = input(clickhouse_prompt).strip()
+    clickhouse_uid = clickhouse_uid_raw or current_clickhouse_uid or None
     profile_dir_raw = input(f"Playwright profile dir [{current_profile_dir}]: ").strip()
     profile_dir = (
         Path(profile_dir_raw).expanduser() if profile_dir_raw else current_profile_dir
@@ -550,6 +604,7 @@ def _prompt_config(cfg: Config | None) -> Config:
     return Config(
         grafana_url=grafana_url.rstrip("/"),
         loki_datasource_uid=loki_uid,
+        clickhouse_datasource_uid=clickhouse_uid,
         profile_dir=profile_dir,
     )
 

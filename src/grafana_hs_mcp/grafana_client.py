@@ -315,6 +315,26 @@ class GrafanaClient:
         datasource_uid: str,
         sql: str,
     ) -> dict[str, Any]:
+        return self._query_sql_datasource(datasource_uid=datasource_uid, sql=sql)
+
+    def query_clickhouse(
+        self,
+        sql: str,
+        datasource_uid: str | None = None,
+    ) -> dict[str, Any]:
+        uid = datasource_uid or self.config.clickhouse_datasource_uid
+        if not uid:
+            raise ValueError(
+                "ClickHouse datasource UID not configured. Pass datasource_uid or set "
+                "GRAFANA_CLICKHOUSE_DATASOURCE_UID / clickhouse_datasource_uid."
+            )
+        return self._query_sql_datasource(datasource_uid=uid, sql=sql)
+
+    def _query_sql_datasource(
+        self,
+        datasource_uid: str,
+        sql: str,
+    ) -> dict[str, Any]:
         _assert_select_only(sql)
         payload = {
             "queries": [

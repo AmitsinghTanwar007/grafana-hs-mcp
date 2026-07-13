@@ -28,7 +28,6 @@ from .config import (
     Config,
     load_config,
     load_all_instances,
-    get_default_instance_name,
     save_config,
     save_instance,
     session_file_for,
@@ -75,7 +74,6 @@ commands:
   Setup & Verification:
     setup                        Configure a Grafana instance (default or named)
     setup --name sbx             Add a second instance named 'sbx'
-    setup --name prod --set-default  Add 'prod' and make it the default
     instances                    List all configured Grafana instances
     doctor                       Verify all instances (or --name for one)
     env                          Show current config and environment values
@@ -96,9 +94,9 @@ commands:
     run                   Start MCP server over stdio (used by AI clients)
 
 examples:
-  grafana-hs-mcp setup                         # First-time setup (default instance)
+  grafana-hs-mcp setup                         # First-time setup
   grafana-hs-mcp setup --name prod             # Add a 'prod' instance
-  grafana-hs-mcp setup --name sbx              # Add a 'sbx' instance
+  grafana-hs-mcp setup --name sbx              # Add a 'sbx' instance (all instances are peers)
   grafana-hs-mcp instances                     # List all configured instances
   grafana-hs-mcp doctor                        # Check all instances
   grafana-hs-mcp doctor --name prod            # Check only 'prod'
@@ -145,11 +143,6 @@ def main(argv: list[str] | None = None) -> None:
         "--profile-dir",
         default=None,
         help="Playwright browser profile directory (default: ~/.grafana-hs-mcp/profiles/<name>/)",
-    )
-    setup_cmd.add_argument(
-        "--set-default",
-        action="store_true",
-        help="Make this instance the default (auto-set for the first instance)",
     )
     setup_cmd.add_argument(
         "--skip-browser",
@@ -289,7 +282,7 @@ def do_setup(args) -> None:
         profile_dir=profile_dir,
         name=name,
     )
-    save_instance(name, cfg, set_default=getattr(args, "set_default", False))
+    save_instance(name, cfg)
     print(f"Saved config: {CONFIG_FILE}  (instance: {name})")
 
     if args.skip_browser:
@@ -383,12 +376,10 @@ def do_instances() -> None:
     if not instances:
         print("No Grafana instances configured. Run `grafana-hs-mcp setup` first.")
         return
-    default = get_default_instance_name()
-    print(f"{'NAME':<16} {'DEFAULT':<9} {'URL'}")
-    print("-" * 70)
+    print(f"{'NAME':<16} {'URL'}")
+    print("-" * 60)
     for name, cfg in instances.items():
-        marker = "* default" if name == default else ""
-        print(f"{name:<16} {marker:<9} {cfg.grafana_url}")
+        print(f"{name:<16} {cfg.grafana_url}")
 
 
 def do_update() -> None:
@@ -566,8 +557,6 @@ def do_env(args) -> None:
 
 
 def _print_env(instances: dict, config_exists: bool, show_secrets: bool) -> None:
-    default = get_default_instance_name()
-
     print("Grafana HS MCP environment")
     print("=" * 28)
     print(f"Config file : {CONFIG_FILE}  ({'exists' if config_exists else 'missing'})")
@@ -581,8 +570,7 @@ def _print_env(instances: dict, config_exists: bool, show_secrets: bool) -> None
         print(f"Configured instances ({len(instances)}):")
         for name, cfg in instances.items():
             sf = session_file_for(name)
-            marker = " [default]" if name == default else ""
-            print(f"  {name}{marker}")
+            print(f"  {name}")
             print(f"    URL        : {cfg.grafana_url}")
             print(f"    Loki UID   : {cfg.loki_datasource_uid}")
             if cfg.clickhouse_datasource_uid:

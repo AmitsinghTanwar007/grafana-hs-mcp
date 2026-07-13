@@ -29,8 +29,8 @@ class Config:
 def session_file_for(name: str) -> Path:
     """Return the session-cookie file for a named instance.
 
-    The legacy 'default' instance keeps the old path so existing setups
-    don't need to re-authenticate.
+    The legacy single-instance setup (name == 'default') keeps the old path
+    so existing setups don't need to re-authenticate.
     """
     if name == "default":
         return SESSION_FILE
@@ -73,23 +73,36 @@ def _read_config_file() -> dict:
 
 
 def load_config(name: str | None = None) -> Config:
-    """Load a named instance's Config, or the default instance if name is None."""
+    """Load a named instance's Config.
+
+    If name is None:
+    - exactly one instance configured → return it automatically
+    - multiple instances → raise with a helpful list (user must specify --name)
+    """
     cfg = _read_config_file()
 
     # ── Multi-instance format ──────────────────────────────────────────────────
     if "instances" in cfg:
         instances: dict = cfg["instances"]
-        default_name = cfg.get("default_instance") or next(iter(instances), "default")
-        instance_name = name or default_name
-        if instance_name not in instances:
-            available = list(instances.keys())
-            raise RuntimeError(
-                f"Grafana instance '{instance_name}' not found. "
-                f"Available: {available}. "
-                "Run `grafana-hs-mcp instances` to list all, or "
-                "`grafana-hs-mcp setup --name <name>` to add one."
-            )
-        return _instance_from_dict(instance_name, instances[instance_name])
+        if name:
+            if name not in instances:
+                available = list(instances.keys())
+                raise RuntimeError(
+                    f"Grafana instance '{name}' not found. "
+                    f"Available: {available}. "
+                    "Run `grafana-hs-mcp instances` to list all."
+                )
+            return _instance_from_dict(name, instances[name])
+        # No name given
+        if len(instances) == 1:
+            only_name = next(iter(instances))
+            return _instance_from_dict(only_name, instances[only_name])
+        available = list(instances.keys())
+        raise RuntimeError(
+            f"Multiple Grafana instances are configured: {available}. "
+            "Specify which one to use with grafana_instance=<name> "
+            "or run `grafana-hs-mcp instances` to list them."
+        )
 
     # ── Legacy single-instance format ─────────────────────────────────────────
     if name and name != "default":
@@ -130,38 +143,34 @@ def load_all_instances() -> dict[str, Config]:
         return {}
 
 
-def get_default_instance_name() -> str | None:
-    """Return the name of the default instance, or None if nothing is configured."""
+def get_sole_instance_name() -> str | None:
+    """Return the instance name only if exactly one is configured, else None."""
     cfg = _read_config_file()
     if "instances" in cfg:
-        return cfg.get("default_instance") or next(iter(cfg["instances"]), None)
+        instances = cfg["instances"]
+        return next(iter(instances)) if len(instances) == 1 else None
     if cfg.get("grafana_url") or os.getenv("GRAFANA_URL"):
         return "default"
     return None
 
 
-def save_instance(name: str, config: Config, set_default: bool = False) -> None:
-    """Save or update a named instance.  Migrates legacy single-instance format."""
+def save_instance(name: str, config: Config) -> None:
+    """Save or update a named instance. Migrates legacy single-instance format."""
     ensure_app_dir()
     cfg = _read_config_file()
 
-    # Migrate legacy format → multi-instance
+    # Migrate legacy format → multi-instance (drop default_instance key too)
     if "grafana_url" in cfg and "instances" not in cfg:
         legacy_data: dict = {"grafana_url": cfg.pop("grafana_url")}
         for k in ("loki_datasource_uid", "clickhouse_datasource_uid", "profile_dir"):
             if k in cfg:
                 legacy_data[k] = cfg.pop(k)
         cfg.pop("api_token", None)
+        cfg.pop("default_instance", None)
         cfg["instances"] = {"default": legacy_data}
-        cfg.setdefault("default_instance", "default")
 
+    cfg.pop("default_instance", None)  # no default — all instances are peers
     cfg.setdefault("instances", {})
-
-    # First instance ever → becomes default automatically
-    if not cfg.get("default_instance") or not cfg["instances"]:
-        cfg["default_instance"] = name
-    elif set_default:
-        cfg["default_instance"] = name
 
     instance_data: dict = {
         "grafana_url": config.grafana_url,
@@ -169,7 +178,6 @@ def save_instance(name: str, config: Config, set_default: bool = False) -> None:
     }
     if config.clickhouse_datasource_uid:
         instance_data["clickhouse_datasource_uid"] = config.clickhouse_datasource_uid
-    # Only persist profile_dir when it differs from the computed default
     if config.profile_dir != _default_profile_dir(name):
         instance_data["profile_dir"] = str(config.profile_dir)
 

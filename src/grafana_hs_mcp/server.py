@@ -7,7 +7,7 @@ from typing import Any
 import anyio
 from mcp.server.fastmcp import FastMCP
 
-from .config import load_config, load_all_instances, get_default_instance_name
+from .config import load_config, load_all_instances
 from .grafana_client import GrafanaClient
 
 
@@ -31,8 +31,7 @@ def get_client(instance: str | None = None) -> GrafanaClient:
 
 @mcp.tool()
 async def list_grafana_instances() -> list[dict[str, Any]]:
-    """List all configured Grafana instances and which one is the default."""
-    default = get_default_instance_name()
+    """List all configured Grafana instances. Use the 'name' field as grafana_instance in other tools."""
     instances = load_all_instances()
     return [
         {
@@ -40,7 +39,6 @@ async def list_grafana_instances() -> list[dict[str, Any]]:
             "grafana_url": cfg.grafana_url,
             "loki_datasource_uid": cfg.loki_datasource_uid,
             "clickhouse_datasource_uid": cfg.clickhouse_datasource_uid,
-            "is_default": name == default,
         }
         for name, cfg in instances.items()
     ]

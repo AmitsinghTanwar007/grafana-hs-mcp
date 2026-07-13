@@ -13,7 +13,7 @@ from typing import Optional
 
 import requests
 
-from .config import Config, PROFILE_DIR, SESSION_FILE, ensure_app_dir
+from .config import Config, PROFILE_DIR, SESSION_FILE, ensure_app_dir, session_file_for
 
 
 logger = logging.getLogger(__name__)
@@ -22,13 +22,14 @@ NAV_TIMEOUT_MS = 60_000
 SETTLE_TIMEOUT_MS = 3_000
 
 
-def load_saved_cookie() -> str | None:
-    if not SESSION_FILE.exists():
+def load_saved_cookie(session_file: Path | None = None) -> str | None:
+    sf = session_file or SESSION_FILE
+    if not sf.exists():
         return None
     try:
         import json
 
-        data = json.loads(SESSION_FILE.read_text())
+        data = json.loads(sf.read_text())
     except Exception as exc:
         logger.warning("Could not read saved Grafana session: %s", exc)
         return None
@@ -41,14 +42,19 @@ def load_saved_cookie() -> str | None:
 
 
 def save_cookie(
-    cookie: str, source: str = "unknown", expires: int | None = None
+    cookie: str,
+    source: str = "unknown",
+    expires: int | None = None,
+    session_file: Path | None = None,
 ) -> None:
     import json
 
     ensure_app_dir()
+    sf = session_file or SESSION_FILE
+    sf.parent.mkdir(parents=True, exist_ok=True)
     if expires is not None and expires <= 0:
         expires = None
-    SESSION_FILE.write_text(
+    sf.write_text(
         json.dumps(
             {
                 "cookie": cookie,
@@ -60,7 +66,7 @@ def save_cookie(
         )
         + "\n"
     )
-    SESSION_FILE.chmod(0o600)
+    sf.chmod(0o600)
 
 
 def extract_cookie_from_browsers(
@@ -114,12 +120,14 @@ def extract_cookie_from_browsers(
     return None
 
 
-def setup_cookie_from_existing_browser(grafana_url: str) -> bool:
+def setup_cookie_from_existing_browser(
+    grafana_url: str, session_file: Path | None = None
+) -> bool:
     """Use the user's normal browser session instead of creating a new profile."""
     extracted = extract_cookie_from_browsers(grafana_url)
     if extracted:
         cookie, browser_name, expires = extracted
-        save_cookie(cookie, source=browser_name, expires=expires)
+        save_cookie(cookie, source=browser_name, expires=expires, session_file=session_file)
         print(
             f"Found existing Grafana session in {browser_name}; saved session cookie."
         )
@@ -141,7 +149,7 @@ def setup_cookie_from_existing_browser(grafana_url: str) -> bool:
     extracted = extract_cookie_from_browsers(grafana_url)
     if extracted:
         cookie, browser_name, expires = extracted
-        save_cookie(cookie, source=browser_name, expires=expires)
+        save_cookie(cookie, source=browser_name, expires=expires, session_file=session_file)
         print(f"Imported Grafana session from {browser_name}; saved session cookie.")
         return True
 
@@ -234,6 +242,7 @@ def ensure_playwright_chromium(interactive: bool = True) -> None:
 class AuthManager:
     def __init__(self, config: Config):
         self.config = config
+        self._session_file = session_file_for(config.name)
         self.session = requests.Session()
         self.session.headers.update({"Accept": "application/json"})
         if config.api_token:
@@ -262,7 +271,7 @@ class AuthManager:
         persist it if it really authenticates. Returns True on success."""
         self.seed_session_cookies(cookie)
         if self._session_is_valid():
-            save_cookie(cookie, source=source, expires=expires)
+            save_cookie(cookie, source=source, expires=expires, session_file=self._session_file)
             logger.info("Authenticated to Grafana via %s cookie", source)
             return True
         logger.warning("Cookie from %s did not authenticate (401); will escalate", source)
@@ -273,7 +282,7 @@ class AuthManager:
             return self.session
 
         # 1. Previously-saved cookie (only trust it if it still authenticates).
-        cookie = load_saved_cookie()
+        cookie = load_saved_cookie(session_file=self._session_file)
         if cookie and self._try_cookie(cookie, source="saved"):
             return self.session
 
@@ -291,19 +300,12 @@ class AuthManager:
 
         raise RuntimeError(
             "Could not obtain a valid Grafana session from a saved cookie, your "
-            "browser, or the Playwright profile. Log in to Grafana in your browser "
-            "(or run `grafana-hs-mcp setup`) and try again."
+            f"browser, or the Playwright profile. Log in to Grafana in your browser "
+            f"(or run `grafana-hs-mcp setup --name {self.config.name}`) and try again."
         )
 
     def refresh_after_401(self) -> bool:
-        """Recover from a 401/403 on an authenticated request.
-
-        The current `grafana_session` is stale (Grafana rotates it server-side).
-        Re-read the browser in case it rotated to a fresh cookie, but ONLY trust a
-        cookie that actually validates; otherwise escalate to a real Playwright
-        fresh login instead of re-seeding the same dead cookie (which is what made
-        this loop forever).
-        """
+        """Recover from a 401/403 on an authenticated request."""
         if self.config.api_token:
             return False
 
@@ -418,7 +420,10 @@ class AuthManager:
 
 
 def setup_profile(
-    grafana_url: str, profile_dir: Path = PROFILE_DIR, headless: bool = False
+    grafana_url: str,
+    profile_dir: Path = PROFILE_DIR,
+    headless: bool = False,
+    session_file: Path | None = None,
 ) -> None:
     try:
         from playwright.sync_api import sync_playwright
@@ -463,7 +468,7 @@ def setup_profile(
     cookie = f"grafana_session={session['value']}"
     if expiry:
         cookie += f"; grafana_session_expiry={expiry['value']}"
-    save_cookie(cookie, source="playwright-profile", expires=session.get("expires"))
+    save_cookie(cookie, source="playwright-profile", expires=session.get("expires"), session_file=session_file)
 
 
 def can_use_headed_browser() -> bool:

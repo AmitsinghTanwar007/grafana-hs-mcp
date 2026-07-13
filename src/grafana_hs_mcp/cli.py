@@ -27,7 +27,12 @@ from .config import (
     SESSION_FILE,
     Config,
     load_config,
+    load_all_instances,
+    get_default_instance_name,
     save_config,
+    save_instance,
+    session_file_for,
+    _default_profile_dir,
 )
 from .grafana_client import GrafanaClient
 
@@ -68,10 +73,13 @@ _DESCRIPTION = (
 _EPILOG = """
 commands:
   Setup & Verification:
-    setup                 Configure Grafana URL and authenticate via browser SSO
-    doctor                Verify config, auth, and Grafana connectivity
-    env                   Show current config and environment values
-    env --interactive     View and interactively edit config, then run doctor
+    setup                        Configure a Grafana instance (default or named)
+    setup --name sbx             Add a second instance named 'sbx'
+    setup --name prod --set-default  Add 'prod' and make it the default
+    instances                    List all configured Grafana instances
+    doctor                       Verify all instances (or --name for one)
+    env                          Show current config and environment values
+    env --interactive            View and interactively edit config
 
   AI Client Integration:
     configure-opencode    Add grafana-hs-mcp to opencode MCP config
@@ -83,16 +91,20 @@ commands:
 
   Maintenance:
     update                Update to latest version from GitHub
-    cleanup               Remove local data files and browser profile
+    cleanup               Remove local data files and browser profiles
     cleanup --browser-cache  Also remove Playwright browser cache
     run                   Start MCP server over stdio (used by AI clients)
 
 examples:
-  grafana-hs-mcp setup                 # First-time setup
-  grafana-hs-mcp doctor                # Check everything works
-  grafana-hs-mcp env --interactive     # View and edit config
-  grafana-hs-mcp configure-all         # Register with all AI clients
-  grafana-hs-mcp update                # Update to latest version
+  grafana-hs-mcp setup                         # First-time setup (default instance)
+  grafana-hs-mcp setup --name prod             # Add a 'prod' instance
+  grafana-hs-mcp setup --name sbx              # Add a 'sbx' instance
+  grafana-hs-mcp instances                     # List all configured instances
+  grafana-hs-mcp doctor                        # Check all instances
+  grafana-hs-mcp doctor --name prod            # Check only 'prod'
+  grafana-hs-mcp env --interactive             # View and edit config
+  grafana-hs-mcp configure-all                 # Register with all AI clients
+  grafana-hs-mcp update                        # Update to latest version
 """
 
 
@@ -110,7 +122,11 @@ def main(argv: list[str] | None = None) -> None:
     subparsers = parser.add_subparsers(dest="command", metavar="command")
 
     setup_cmd = subparsers.add_parser(
-        "setup", help="Configure Grafana URL and authenticate via browser SSO"
+        "setup", help="Configure a Grafana instance (default or named with --name)"
+    )
+    setup_cmd.add_argument(
+        "--name", default="default",
+        help="Instance name (default: 'default'). Use e.g. --name prod to add a second instance.",
     )
     setup_cmd.add_argument(
         "--grafana-url", default=None, help="Grafana base URL (prompted if not given)"
@@ -127,8 +143,13 @@ def main(argv: list[str] | None = None) -> None:
     )
     setup_cmd.add_argument(
         "--profile-dir",
-        default=str(PROFILE_DIR),
-        help="Playwright browser profile directory",
+        default=None,
+        help="Playwright browser profile directory (default: ~/.grafana-hs-mcp/profiles/<name>/)",
+    )
+    setup_cmd.add_argument(
+        "--set-default",
+        action="store_true",
+        help="Make this instance the default (auto-set for the first instance)",
     )
     setup_cmd.add_argument(
         "--skip-browser",
@@ -156,8 +177,15 @@ def main(argv: list[str] | None = None) -> None:
         help="Show secret values instead of masking them",
     )
 
-    subparsers.add_parser(
+    doctor_cmd = subparsers.add_parser(
         "doctor", help="Verify config, auth, and Grafana connectivity"
+    )
+    doctor_cmd.add_argument(
+        "--name", default=None,
+        help="Instance name to check (default: check all configured instances)",
+    )
+    subparsers.add_parser(
+        "instances", help="List all configured Grafana instances",
     )
     subparsers.add_parser(
         "configure-opencode", help="Add grafana-hs-mcp to opencode MCP config"
@@ -201,10 +229,12 @@ def main(argv: list[str] | None = None) -> None:
     try:
         if args.command == "setup":
             do_setup(args)
+        elif args.command == "instances":
+            do_instances()
         elif args.command == "env":
             do_env(args)
         elif args.command == "doctor":
-            do_doctor()
+            do_doctor(getattr(args, "name", None))
         elif args.command == "configure-opencode":
             do_configure_opencode()
         elif args.command == "configure-claude":
@@ -235,6 +265,7 @@ def main(argv: list[str] | None = None) -> None:
 
 
 def do_setup(args) -> None:
+    name = args.name or "default"
     default_url = args.grafana_url or os.getenv("GRAFANA_URL", "")
     prompt = f"Grafana URL [{default_url}]: " if default_url else "Grafana URL: "
     grafana_url = args.grafana_url or input(prompt).strip() or default_url
@@ -242,7 +273,13 @@ def do_setup(args) -> None:
         raise SystemExit(
             "Grafana URL is required. Example: https://grafana.example.com"
         )
-    profile_dir = Path(args.profile_dir).expanduser()
+
+    profile_dir = (
+        Path(args.profile_dir).expanduser()
+        if args.profile_dir
+        else _default_profile_dir(name)
+    )
+    session_file = session_file_for(name)
     _assert_grafana_reachable(grafana_url)
 
     cfg = Config(
@@ -250,20 +287,20 @@ def do_setup(args) -> None:
         loki_datasource_uid=args.loki_datasource_uid,
         clickhouse_datasource_uid=args.clickhouse_datasource_uid,
         profile_dir=profile_dir,
+        name=name,
     )
-    save_config(cfg)
-    print(f"Saved config: {CONFIG_FILE}")
+    save_instance(name, cfg, set_default=getattr(args, "set_default", False))
+    print(f"Saved config: {CONFIG_FILE}  (instance: {name})")
+
     if args.skip_browser:
         print("Skipped browser login/import. Using existing saved session or profile.")
     else:
-        # Try the existing browser cookie first — but ONLY trust it if it actually
-        # authenticates. A stale/rotated grafana_session (common on staging / macOS
-        # Chrome) otherwise short-circuits setup and skips the interactive login,
-        # leaving doctor to fail with 401 and no profile to escalate to.
-        got_browser_cookie = setup_cookie_from_existing_browser(cfg.grafana_url)
+        got_browser_cookie = setup_cookie_from_existing_browser(
+            cfg.grafana_url, session_file=session_file
+        )
         if got_browser_cookie and _saved_cookie_authenticates(cfg):
             print("Setup complete (existing browser session is valid). Running doctor...")
-            do_doctor()
+            do_doctor(name)
             return
 
         if got_browser_cookie:
@@ -276,21 +313,21 @@ def do_setup(args) -> None:
                 "Browser session is invalid and no display is available for an "
                 "interactive login. Either set `api_token` in "
                 f"{CONFIG_FILE} (a Grafana service-account token), or run "
-                "`grafana-hs-mcp setup` on a machine with a browser."
+                f"`grafana-hs-mcp setup --name {name}` on a machine with a browser."
             )
 
         ensure_playwright_chromium(interactive=True)
         print(f"Opening a browser to log in (profile: {cfg.profile_dir})")
-        setup_profile(cfg.grafana_url, cfg.profile_dir, headless=args.headless)
-    print("Setup complete. Running doctor...")
-    do_doctor()
+        setup_profile(cfg.grafana_url, cfg.profile_dir, headless=args.headless, session_file=session_file)
+
+    print(f"Setup complete for instance '{name}'. Running doctor...")
+    do_doctor(name)
 
 
 def _saved_cookie_authenticates(cfg) -> bool:
-    """True only if the just-saved browser cookie actually authenticates (200 on
-    an authenticated endpoint). Prevents a stale 401 cookie from being trusted."""
+    """True only if the just-saved browser cookie actually authenticates."""
     try:
-        cookie = load_saved_cookie()
+        cookie = load_saved_cookie(session_file=session_file_for(cfg.name))
         if not cookie:
             return False
         am = AuthManager(cfg)
@@ -300,19 +337,58 @@ def _saved_cookie_authenticates(cfg) -> bool:
         return False
 
 
-def do_doctor() -> None:
-    cfg = load_config()
-    _assert_grafana_reachable(cfg.grafana_url)
-    client = GrafanaClient(cfg)
-    health = client.health_check()
-    print("Grafana health:", health)
+def _do_doctor_one(name: str) -> bool:
+    """Run doctor for a single named instance. Returns True on success."""
     try:
+        cfg = load_config(name)
+    except RuntimeError as exc:
+        print(f"  [{name}] ERROR: {exc}")
+        return False
+    try:
+        _assert_grafana_reachable(cfg.grafana_url)
+        client = GrafanaClient(cfg)
+        health = client.health_check()
         datasources = client.list_datasources()
-        print(f"Datasources: {len(datasources)}")
-        for ds in datasources[:10]:
-            print(f"  - {ds.get('name')} ({ds.get('type')}) uid={ds.get('uid')}")
-    finally:
         client.stop_heartbeat()
+        print(f"  [{name}] {cfg.grafana_url}  health={health.get('database','?')}  datasources={len(datasources)}")
+        for ds in datasources[:5]:
+            print(f"           - {ds.get('name')} ({ds.get('type')}) uid={ds.get('uid')}")
+        return True
+    except Exception as exc:
+        print(f"  [{name}] FAILED: {exc}")
+        return False
+
+
+def do_doctor(name: str | None = None) -> None:
+    if name:
+        ok = _do_doctor_one(name)
+        if not ok:
+            raise SystemExit(1)
+        return
+
+    instances = load_all_instances()
+    if not instances:
+        raise SystemExit(
+            "No Grafana instances configured. Run `grafana-hs-mcp setup` first."
+        )
+    print(f"Checking {len(instances)} instance(s)...")
+    failed = [n for n in instances if not _do_doctor_one(n)]
+    if failed:
+        print(f"\n{len(failed)} instance(s) failed: {failed}")
+        raise SystemExit(1)
+
+
+def do_instances() -> None:
+    instances = load_all_instances()
+    if not instances:
+        print("No Grafana instances configured. Run `grafana-hs-mcp setup` first.")
+        return
+    default = get_default_instance_name()
+    print(f"{'NAME':<16} {'DEFAULT':<9} {'URL'}")
+    print("-" * 70)
+    for name, cfg in instances.items():
+        marker = "* default" if name == default else ""
+        print(f"{name:<16} {marker:<9} {cfg.grafana_url}")
 
 
 def do_update() -> None:
@@ -468,20 +544,20 @@ def _assert_grafana_reachable(grafana_url: str) -> None:
 
 def do_env(args) -> None:
     config_exists = CONFIG_FILE.exists()
-    cfg = load_config() if config_exists or os.getenv("GRAFANA_URL") else None
+    instances = load_all_instances() if config_exists or os.getenv("GRAFANA_URL") else {}
 
-    _print_env(cfg, config_exists, args.show_secrets)
+    _print_env(instances, config_exists, args.show_secrets)
 
     if args.interactive:
         print()
         answer = input("Update saved config values? [y/N]: ").strip().lower()
         if answer in {"y", "yes"}:
-            cfg = _prompt_config(cfg)
-            save_config(cfg)
+            cfg = _prompt_config(next(iter(instances.values()), None))
+            save_instance(cfg.name, cfg)
             config_exists = True
             print(f"Saved config: {CONFIG_FILE}")
             print()
-            _print_env(cfg, config_exists, args.show_secrets)
+            _print_env({cfg.name: cfg}, config_exists, args.show_secrets)
 
         print()
         answer = input("Run doctor now? [y/N]: ").strip().lower()
@@ -489,78 +565,48 @@ def do_env(args) -> None:
             do_doctor()
 
 
-def _print_env(cfg: Config | None, config_exists: bool, show_secrets: bool) -> None:
-
-    rows = [
-        ("Config file", str(CONFIG_FILE), "exists" if config_exists else "missing"),
-        (
-            "GRAFANA_HS_MCP_HOME",
-            os.getenv("GRAFANA_HS_MCP_HOME", ""),
-            "env" if os.getenv("GRAFANA_HS_MCP_HOME") else "default",
-        ),
-        (
-            "GRAFANA_URL",
-            cfg.grafana_url if cfg else "",
-            _source("GRAFANA_URL", config_exists),
-        ),
-        (
-            "GRAFANA_LOKI_DATASOURCE_UID",
-            cfg.loki_datasource_uid if cfg else "",
-            _source("GRAFANA_LOKI_DATASOURCE_UID", config_exists),
-        ),
-        (
-            "GRAFANA_CLICKHOUSE_DATASOURCE_UID",
-            cfg.clickhouse_datasource_uid if cfg else "",
-            _source("GRAFANA_CLICKHOUSE_DATASOURCE_UID", config_exists),
-        ),
-        (
-            "GRAFANA_HS_MCP_PROFILE_DIR",
-            str(cfg.profile_dir) if cfg else str(PROFILE_DIR),
-            _source("GRAFANA_HS_MCP_PROFILE_DIR", config_exists),
-        ),
-        (
-            "GRAFANA_API_TOKEN",
-            _secret(os.getenv("GRAFANA_API_TOKEN"), show_secrets),
-            "env" if os.getenv("GRAFANA_API_TOKEN") else "not set",
-        ),
-        (
-            "DISPLAY",
-            os.getenv("DISPLAY", ""),
-            "env" if os.getenv("DISPLAY") else "not set",
-        ),
-        (
-            "WAYLAND_DISPLAY",
-            os.getenv("WAYLAND_DISPLAY", ""),
-            "env" if os.getenv("WAYLAND_DISPLAY") else "not set",
-        ),
-        (
-            "Profile exists",
-            "yes" if cfg and cfg.profile_dir.exists() else "no",
-            str(cfg.profile_dir if cfg else PROFILE_DIR),
-        ),
-        (
-            "Session cache exists",
-            "yes" if SESSION_FILE.exists() else "no",
-            str(SESSION_FILE),
-        ),
-    ]
+def _print_env(instances: dict, config_exists: bool, show_secrets: bool) -> None:
+    default = get_default_instance_name()
 
     print("Grafana HS MCP environment")
     print("=" * 28)
-    width = max(len(k) for k, _, _ in rows)
-    for key, value, source in rows:
-        print(f"{key:<{width}} : {value or '-'}  ({source})")
+    print(f"Config file : {CONFIG_FILE}  ({'exists' if config_exists else 'missing'})")
+    print(f"App dir     : {APP_DIR}")
+    home_env = os.getenv("GRAFANA_HS_MCP_HOME", "")
+    if home_env:
+        print(f"GRAFANA_HS_MCP_HOME : {home_env}  (env)")
+    print()
+
+    if instances:
+        print(f"Configured instances ({len(instances)}):")
+        for name, cfg in instances.items():
+            sf = session_file_for(name)
+            marker = " [default]" if name == default else ""
+            print(f"  {name}{marker}")
+            print(f"    URL        : {cfg.grafana_url}")
+            print(f"    Loki UID   : {cfg.loki_datasource_uid}")
+            if cfg.clickhouse_datasource_uid:
+                print(f"    CH UID     : {cfg.clickhouse_datasource_uid}")
+            print(f"    Profile    : {cfg.profile_dir}  ({'exists' if cfg.profile_dir.exists() else 'missing'})")
+            print(f"    Session    : {sf}  ({'exists' if sf.exists() else 'missing'})")
+    else:
+        print("  No instances configured. Run `grafana-hs-mcp setup` first.")
+
+    print()
+    env_token = os.getenv("GRAFANA_API_TOKEN")
+    if env_token:
+        print(f"GRAFANA_API_TOKEN : {_secret(env_token, show_secrets)}  (env)")
+    for disp_var in ("DISPLAY", "WAYLAND_DISPLAY"):
+        val = os.getenv(disp_var, "")
+        if val:
+            print(f"{disp_var} : {val}  (env)")
 
     print()
     print("Useful commands:")
-    print("  grafana-hs-mcp setup")
-    print("  grafana-hs-mcp doctor")
-    print("  grafana-hs-mcp configure-opencode")
-    print("  grafana-hs-mcp configure-claude")
-    print("  grafana-hs-mcp configure-claude-code")
-    print("  grafana-hs-mcp configure-cursor")
-    print("  grafana-hs-mcp configure-codex")
-    print("  grafana-hs-mcp configure-all")
+    print("  grafana-hs-mcp setup [--name <n>]   # add or reconfigure an instance")
+    print("  grafana-hs-mcp instances             # list all instances")
+    print("  grafana-hs-mcp doctor [--name <n>]  # check connectivity")
+    print("  grafana-hs-mcp configure-all         # register with all AI clients")
     print("  grafana-hs-mcp update")
     print("  grafana-hs-mcp cleanup")
     print("  grafana-hs-mcp run")

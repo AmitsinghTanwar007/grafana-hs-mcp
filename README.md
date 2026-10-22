@@ -1,6 +1,6 @@
 # grafana-hs-mcp
 
-MCP server that connects your AI assistant to Grafana. Your AI can help you write and run LogQL and SQL queries for Loki, PostgreSQL, and ClickHouse — it generates the query based on what you ask, then runs it through Grafana.
+MCP server that connects your AI assistant to Grafana. Your AI can help you write and run PromQL, LogQL, and read-only SQL queries, and can manage dashboards through Grafana's API.
 
 ## Prerequisites
 
@@ -159,6 +159,18 @@ Query the ClickHouse datasource: show payment events by connector for the last 2
 ```
 
 ```
+Query the VictoriaMetrics datasource for CPU usage in the hyperswitch namespace.
+```
+
+```
+List the Grafana dashboards in prod.
+```
+
+```
+Create a dashboard for UCS CI runner CPU, memory, and pod counts.
+```
+
+```
 What errors appeared in the hyperswitch-integ namespace in the last 2 hours?
 ```
 
@@ -166,7 +178,7 @@ What errors appeared in the hyperswitch-integ namespace in the last 2 hours?
 Query prod Loki for errors and sbx Loki for the same errors — compare them.
 ```
 
-The AI writes the LogQL or SQL query based on your question, then executes it through Grafana and returns the results.
+The AI writes the PromQL, LogQL, or SQL query based on your question, then executes it through Grafana and returns the results. Dashboard creation and updates use Grafana's dashboard API and require explicit use of the corresponding write tool.
 
 ## Config and environment
 

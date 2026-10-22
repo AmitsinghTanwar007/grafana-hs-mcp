@@ -110,6 +110,91 @@ class GrafanaClient:
             for ds in data
         ]
 
+    def query_prometheus(
+        self,
+        query: str,
+        start: str = "now-1h",
+        end: str = "now",
+        step: str = "60s",
+        datasource_uid: str | None = None,
+    ) -> dict[str, Any]:
+        """Run a read-only PromQL range query through Grafana's datasource proxy."""
+        if not query.strip():
+            raise ValueError("PromQL query must not be empty")
+        if not datasource_uid:
+            raise ValueError("A Prometheus datasource UID is required")
+
+        start_dt = parse_time(start)
+        end_dt = parse_time(end)
+        if start_dt >= end_dt:
+            raise ValueError("start must be earlier than end")
+
+        path = (
+            f"/api/datasources/uid/{datasource_uid}/resources/api/v1/query_range"
+        )
+        params = {
+            "query": query,
+            "start": start_dt.timestamp(),
+            "end": end_dt.timestamp(),
+            "step": step,
+        }
+        data = self.request("GET", path, params=params, timeout=60).json()
+        if data.get("status") != "success":
+            raise RuntimeError(data.get("error") or "Prometheus query failed")
+        return data
+
+    def list_dashboards(self) -> list[dict[str, Any]]:
+        """List dashboards visible to the authenticated Grafana user."""
+        data = self.request(
+            "GET", "/api/search", params={"type": "dash-db"}, timeout=30
+        ).json()
+        return data
+
+    def get_dashboard(self, uid: str) -> dict[str, Any]:
+        if not uid.strip():
+            raise ValueError("Dashboard UID must not be empty")
+        return self.request("GET", f"/api/dashboards/uid/{uid}", timeout=30).json()
+
+    def create_dashboard(
+        self,
+        dashboard: dict[str, Any],
+        folder_uid: str = "",
+        overwrite: bool = False,
+        message: str = "Created by grafana-hs-mcp",
+    ) -> dict[str, Any]:
+        return self._write_dashboard(dashboard, folder_uid, overwrite, message)
+
+    def update_dashboard(
+        self,
+        dashboard: dict[str, Any],
+        folder_uid: str = "",
+        message: str = "Updated by grafana-hs-mcp",
+    ) -> dict[str, Any]:
+        if not dashboard.get("uid"):
+            raise ValueError("dashboard.uid is required when updating a dashboard")
+        return self._write_dashboard(dashboard, folder_uid, True, message)
+
+    def _write_dashboard(
+        self,
+        dashboard: dict[str, Any],
+        folder_uid: str,
+        overwrite: bool,
+        message: str,
+    ) -> dict[str, Any]:
+        if not isinstance(dashboard, dict):
+            raise ValueError("dashboard must be a JSON object")
+        if not dashboard.get("title"):
+            raise ValueError("dashboard.title is required")
+        payload = {
+            "dashboard": dashboard,
+            "folderUid": folder_uid,
+            "overwrite": overwrite,
+            "message": message,
+        }
+        return self.request(
+            "POST", "/api/dashboards/db", json=payload, timeout=45
+        ).json()
+
     # ------------------------------------------------------------------
     # Internal: single raw Loki query (raises on HTTP error)
     # ------------------------------------------------------------------

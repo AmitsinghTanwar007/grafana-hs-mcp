@@ -209,3 +209,68 @@ grafana-hs-mcp cleanup --browser-cache  # also remove Playwright browser cache
 - **PostgreSQL queries are read-only.** The `query_postgres` tool only allows `SELECT` statements. `INSERT`, `UPDATE`, `DELETE`, `DROP`, and other write/DDL statements are blocked.
 - **ClickHouse queries are read-only.** The `query_clickhouse` tool only allows `SELECT` statements. `INSERT`, `ALTER`, `DELETE`, `DROP`, `OPTIMIZE`, and other write/DDL statements are blocked.
 - **VPN required** for internal Grafana instances. The tool will warn you if Grafana is unreachable before setup proceeds.
+
+## Direct VictoriaLogs endpoints
+
+VictoriaLogs can be queried directly even when it is absent from Grafana's
+configured datasources. It uses **LogsQL**, independent named configuration, and
+separate credentials; Grafana login cookies and tokens are never reused.
+
+```bash
+grafana-hs-mcp setup-victorialogs --name mum \
+  --url https://victorialogs.example.com \
+  --cookie-file ~/.grafana-hs-mcp/vl-cookie
+```
+
+Use the base URL, without `/select/vmui/`. The cookie file contains a complete
+Cookie header, such as `_pomerium=<session value>`, or saved-session JSON with
+`cookie` and optional numeric Unix `expires` fields. Protect it with `chmod 600`.
+Refresh the file when SSO expires; it is read again on every query. This command
+only saves configuration; test authenticated access with the tools below.
+
+Alternatively, set `VICTORIALOGS_COOKIE_MUM` or `VICTORIALOGS_API_TOKEN_MUM` in the
+MCP server environment. The suffix is the instance name uppercased, with hyphens
+replaced by underscores; names must have distinct suffixes. Environment credentials
+override the file, and setting both a cookie and token is an error. No secret is
+written into the instance configuration. Cookie-file paths and secrets are not
+returned by instance discovery.
+
+Tools:
+
+- `list_victorialogs_instances()` lists names and endpoint URLs.
+- `query_victorialogs(query, start="now-2h", end="now", limit=1000,
+  victorialogs_instance=None, timeout_seconds=45)` posts to the read-only
+  `/select/logsql/query` endpoint. Omit the instance only if exactly one is configured.
+
+Example raw query: `{stream="jplp"} "connector-service-http"`.
+Example aggregation:
+
+```text
+{stream="jplp"} "connector-service-http" ("stdout P" OR "stdout F")
+| extract "stdout <marker> " from _msg
+| len(_msg) as msg_len
+| stats by (marker, _time:1h) count() as lines, max(msg_len) as max_len
+```
+
+Specify explicit ISO UTC start/end for historical incidents; the end is exclusive.
+Results preserve arbitrary JSON fields in `rows`, with `count`, effective time
+bounds, and limit metadata. `truncated` indicates a local response limit;
+`possibly_more` also becomes true when the returned count reaches the server row
+limit. Neither flag establishes the total number of matching records.
+
+Requests are capped at 5,000 rows and a 60-second server timeout (45 by default).
+Responses are streamed with an 8 MiB total bound and a 1 MiB individual-record
+bound, supporting application records larger than 16 KB. If the total byte limit
+is reached, complete rows already parsed are returned with a truncation reason;
+a record exceeding 1 MiB raises an error. Use `fields` or narrower queries to
+reduce large responses. Redirects are rejected with an authentication error;
+refresh the cookie rather than supplying credentials from another service.
+Direct requests ignore proxy and `.netrc` settings from the environment, and do
+not automatically log in or retry queries. Grafana's existing `doctor` command
+checks Grafana instances; use a narrow `query_victorialogs` query to verify VL.
+
+Developer validation:
+
+```bash
+PYTHONPATH=src python -m unittest discover -s tests -v
+```

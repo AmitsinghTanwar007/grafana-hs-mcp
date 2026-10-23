@@ -296,6 +296,36 @@ async def query_clickhouse(
     )
 
 
+@mcp.tool()
+async def list_victorialogs_instances() -> list[dict[str, Any]]:
+    """List direct VictoriaLogs endpoints; use name as victorialogs_instance."""
+    from .config import load_victorialogs_instances
+    return [{"name": name, "url": cfg.url}
+            for name, cfg in load_victorialogs_instances().items()]
+
+
+@mcp.tool()
+async def query_victorialogs(
+    query: str, start: str = "now-2h", end: str = "now", limit: int = 1000,
+    victorialogs_instance: str | None = None, timeout_seconds: int = 45,
+) -> dict[str, Any]:
+    """Query direct VictoriaLogs with LogsQL (not Loki LogQL).
+
+    Supports raw logs and stats pipes. Times accept now, now-2h, or ISO datetime;
+    end is exclusive. Row limit is capped at 5000, timeout at 60 seconds, response
+    at 8 MiB, individual records at 1 MiB. Credentials are configured independently
+    from Grafana. A full page may have more matches (possibly_more).
+    """
+    from .config import load_victorialogs_config
+    from .victorialogs_client import VictoriaLogsClient
+    return await anyio.to_thread.run_sync(
+        lambda: VictoriaLogsClient(load_victorialogs_config(victorialogs_instance)).query(
+            query=query, start=start, end=end, limit=limit,
+            timeout_seconds=timeout_seconds,
+        )
+    )
+
+
 def run() -> None:
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"

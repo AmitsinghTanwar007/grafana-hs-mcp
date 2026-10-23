@@ -189,3 +189,61 @@ def save_instance(name: str, config: Config) -> None:
 def save_config(config: Config) -> None:
     """Backward-compatible: save the Config as its named instance."""
     save_instance(config.name or "default", config)
+
+
+@dataclass(frozen=True)
+class VictoriaLogsConfig:
+    url: str
+    name: str = "default"
+    cookie_file: Path | None = None
+
+    def __post_init__(self) -> None:
+        from urllib.parse import urlsplit
+        import re
+
+        parsed = urlsplit(self.url)
+        if (parsed.scheme not in ("http", "https") or not parsed.hostname
+                or parsed.username or parsed.password or parsed.query or parsed.fragment):
+            raise ValueError("VictoriaLogs URL must be an HTTP(S) base URL without credentials, query, or fragment")
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", self.name):
+            raise ValueError("VictoriaLogs instance names may contain letters, digits, underscores, and hyphens")
+
+
+def load_victorialogs_instances() -> dict[str, VictoriaLogsConfig]:
+    instances = _read_config_file().get("victorialogs_instances", {})
+    normalized = [name.upper().replace("-", "_") for name in instances]
+    if len(normalized) != len(set(normalized)):
+        raise ValueError("VictoriaLogs instance names must have distinct uppercase environment suffixes (hyphens become underscores)")
+    return {
+        name: VictoriaLogsConfig(
+            url=data["url"].rstrip("/"), name=name,
+            cookie_file=Path(data["cookie_file"]).expanduser() if data.get("cookie_file") else None,
+        ) for name, data in instances.items()
+    }
+
+
+def load_victorialogs_config(name: str | None = None) -> VictoriaLogsConfig:
+    instances = load_victorialogs_instances()
+    if name is None and len(instances) == 1:
+        return next(iter(instances.values()))
+    if name in instances:
+        return instances[name]
+    raise RuntimeError(
+        "Select a configured VictoriaLogs instance. Available: "
+        f"{list(instances)}. Run grafana-hs-mcp setup-victorialogs first."
+    )
+
+
+def save_victorialogs_instance(config: VictoriaLogsConfig) -> None:
+    ensure_app_dir()
+    data = _read_config_file()
+    instance = {"url": config.url.rstrip("/")}
+    if config.cookie_file is not None:
+        instance["cookie_file"] = str(config.cookie_file.expanduser())
+    existing = data.setdefault("victorialogs_instances", {})
+    suffix = config.name.upper().replace("-", "_")
+    if any(name != config.name and name.upper().replace("-", "_") == suffix for name in existing):
+        raise ValueError("VictoriaLogs instance name collides with an existing environment suffix")
+    existing[config.name] = instance
+    CONFIG_FILE.write_text(json.dumps(data, indent=2) + "\n")
+    CONFIG_FILE.chmod(0o600)

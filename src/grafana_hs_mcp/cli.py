@@ -155,6 +155,13 @@ def main(argv: list[str] | None = None) -> None:
         help="Run browser headless (only works if profile is already valid)",
     )
 
+    vl_setup = subparsers.add_parser(
+        "setup-victorialogs", help="Configure an independent direct VictoriaLogs endpoint"
+    )
+    vl_setup.add_argument("--name", default="default")
+    vl_setup.add_argument("--url", required=True, help="VictoriaLogs base URL (without /select/vmui)")
+    vl_setup.add_argument("--cookie-file", help="File containing a Cookie header or saved-session JSON")
+
     env_cmd = subparsers.add_parser(
         "env", help="Show current config and environment values"
     )
@@ -222,6 +229,13 @@ def main(argv: list[str] | None = None) -> None:
     try:
         if args.command == "setup":
             do_setup(args)
+        elif args.command == "setup-victorialogs":
+            from .config import VictoriaLogsConfig, save_victorialogs_instance
+            save_victorialogs_instance(VictoriaLogsConfig(
+                url=args.url.rstrip("/"), name=args.name,
+                cookie_file=Path(args.cookie_file).expanduser() if args.cookie_file else None,
+            ))
+            print("Saved VictoriaLogs endpoint. Use list_victorialogs_instances and query_victorialogs to verify access.")
         elif args.command == "instances":
             do_instances()
         elif args.command == "env":

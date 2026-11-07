@@ -30,11 +30,14 @@ grafana-hs-mcp configure-all   # register with all supported AI clients
 During setup, the tool first tries to import an existing `grafana_session` cookie
 from your normal browser profile. If you are already logged in to Grafana in
 Chrome, Brave, Edge, Firefox, Safari, etc., setup can finish without opening a
-new isolated browser profile.
+new isolated browser profile. It checks modern and legacy cookie stores in all
+discovered Chromium profiles, validates each session, and reports browser read,
+permission, and decryption errors without printing cookie values.
 
-If no existing session is found, setup opens Grafana in your default browser so
-you can log in there, then retries the cookie import. The isolated Playwright
-profile flow is only used as a fallback.
+If no valid session is found, setup opens Grafana in your default browser so you
+can log in there, then retries the import briefly while the browser saves the new
+session. The isolated Playwright profile flow remains available as a fallback
+when browser security or OS permissions prevent cookie extraction.
 
 Turn on VPN before running `setup` or `doctor` if your Grafana requires VPN access.
 

@@ -88,6 +88,39 @@ async def query_prometheus(
 
 
 @mcp.tool()
+async def query_cloudwatch(
+    queries: list[dict[str, Any]],
+    start: str = "now-24h",
+    end: str = "now",
+    datasource_uid: str = "cloudwatch",
+    grafana_instance: str | None = None,
+) -> dict[str, Any]:
+    """Run read-only AWS CloudWatch Metrics or Logs queries through Grafana.
+
+    Use list_datasources to find the CloudWatch UID. Pass native targets from
+    get_dashboard and resolve dashboard variables (e.g. $webacl) first. Preserve
+    region, namespace, metricName, dimensions, statistic, period, and expressions
+    for Metrics. Logs targets use queryMode="Logs", region, queryString, and
+    logGroupNames (list of names) or logGroups (objects containing name or arn).
+    Logs queries default to CWLI; PPL and SQL are also accepted. Include a limit
+    in queryString to bound returned log rows.
+
+    start/end accept relative times or ISO datetimes; absolute UTC times are
+    recommended for cross-dashboard comparisons. Returns native Grafana
+    results/frames and per-query errors; missing frames are not proof of zero.
+    grafana_instance selects the configured US/EU instance.
+    """
+    return await anyio.to_thread.run_sync(
+        lambda: get_client(grafana_instance).query_cloudwatch(
+            queries=queries,
+            start=start,
+            end=end,
+            datasource_uid=datasource_uid,
+        )
+    )
+
+
+@mcp.tool()
 async def list_dashboards(
     grafana_instance: str | None = None,
 ) -> list[dict[str, Any]]:

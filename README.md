@@ -30,11 +30,14 @@ grafana-hs-mcp configure-all   # register with all supported AI clients
 During setup, the tool first tries to import an existing `grafana_session` cookie
 from your normal browser profile. If you are already logged in to Grafana in
 Chrome, Brave, Edge, Firefox, Safari, etc., setup can finish without opening a
-new isolated browser profile.
+new isolated browser profile. It checks modern and legacy cookie stores in all
+discovered Chromium profiles, validates each session, and reports browser read,
+permission, and decryption errors without printing cookie values.
 
-If no existing session is found, setup opens Grafana in your default browser so
-you can log in there, then retries the cookie import. The isolated Playwright
-profile flow is only used as a fallback.
+If no valid session is found, setup opens Grafana in your default browser so you
+can log in there, then retries the import briefly while the browser saves the new
+session. The isolated Playwright profile flow remains available as a fallback
+when browser security or OS permissions prevent cookie extraction.
 
 Turn on VPN before running `setup` or `doctor` if your Grafana requires VPN access.
 
@@ -192,7 +195,65 @@ grafana-hs-mcp instances          # list all configured instances
 
 ```bash
 grafana-hs-mcp update
+grafana-hs-mcp doctor
 ```
+
+The updater installs the latest repository version with `pip install --upgrade`.
+Restart your AI client afterward: MCP tools are discovered when the server process
+starts, so an already-running server does not hot-reload newly added functions.
+With the default installation path, verify the installed package version with:
+
+```bash
+~/.grafana-hs-mcp/app/venv/bin/python -m pip show grafana-hs-mcp
+```
+
+## CloudWatch metrics and logs
+
+`query_cloudwatch` runs read-only AWS CloudWatch Metrics and Logs queries through
+the existing Grafana CloudWatch datasource and AWS credentials. No local AWS keys
+are required, and no CloudWatch resources are created or modified. Pass native
+query targets in `queries`, use `list_datasources` to discover the datasource UID,
+and select the intended Grafana instance with `grafana_instance`.
+
+Metrics targets use `queryMode="Metrics"` (the default). Preserve `region`,
+`namespace`, `metricName`, `dimensions`, `statistic`, `period`, and any metric
+expressions from `get_dashboard`. Resolve dashboard variables such as `$webacl`
+before calling the tool.
+
+Logs targets use `queryMode="Logs"` and require:
+
+- `region`: the resolved AWS region.
+- `queryString`: the CloudWatch Logs query. CWLI is the default `queryLanguage`;
+  PPL and SQL are also accepted. Older targets with `expression` are mapped to
+  `queryString` automatically.
+- `logGroupNames`: a nonempty list of log-group names, **or** `logGroups`: a
+  nonempty list of objects containing a log-group `name` or `arn`.
+
+For example:
+
+```json
+{
+  "queries": [
+    {
+      "refId": "A",
+      "queryMode": "Logs",
+      "region": "eu-west-1",
+      "logGroupNames": ["/aws/eks/example/cluster"],
+      "queryString": "fields @timestamp, @message | sort @timestamp desc | limit 100"
+    }
+  ],
+  "start": "2026-11-06T04:55:00Z",
+  "end": "2026-11-07T04:55:00Z",
+  "datasource_uid": "cloudwatch",
+  "grafana_instance": "eu-prod"
+}
+```
+
+Use explicit ISO UTC boundaries when correlating logs with other dashboards.
+Include `limit` in `queryString` to bound log rows; `maxDataPoints` is not a Logs
+row limit. Responses preserve native Grafana frames and per-query errors,
+including partial results. Missing frames, empty responses, or access errors mean
+UNKNOWN, not proof of zero matching logs.
 
 ## Cleanup
 

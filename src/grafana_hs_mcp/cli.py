@@ -16,7 +16,6 @@ from .auth import (
     AuthManager,
     can_use_headed_browser,
     ensure_playwright_chromium,
-    load_saved_cookie,
     setup_cookie_from_existing_browser,
     setup_profile,
 )
@@ -303,17 +302,16 @@ def do_setup(args) -> None:
         print("Skipped browser login/import. Using existing saved session or profile.")
     else:
         got_browser_cookie = setup_cookie_from_existing_browser(
-            cfg.grafana_url, session_file=session_file
+            cfg.grafana_url,
+            session_file=session_file,
+            cookie_validator=AuthManager(cfg).cookie_is_valid,
         )
-        if got_browser_cookie and _saved_cookie_authenticates(cfg):
+        if got_browser_cookie:
             print("Setup complete (existing browser session is valid). Running doctor...")
             do_doctor(name)
             return
 
-        if got_browser_cookie:
-            print("Existing browser cookie did not authenticate (401) — logging in fresh...")
-        else:
-            print("No usable browser session found — logging in fresh...")
+        print("No valid browser session found — logging in fresh...")
 
         if not can_use_headed_browser():
             raise SystemExit(
@@ -329,19 +327,6 @@ def do_setup(args) -> None:
 
     print(f"Setup complete for instance '{name}'. Running doctor...")
     do_doctor(name)
-
-
-def _saved_cookie_authenticates(cfg) -> bool:
-    """True only if the just-saved browser cookie actually authenticates."""
-    try:
-        cookie = load_saved_cookie(session_file=session_file_for(cfg.name))
-        if not cookie:
-            return False
-        am = AuthManager(cfg)
-        am.seed_session_cookies(cookie)
-        return am._session_is_valid()
-    except Exception:
-        return False
 
 
 def _do_doctor_one(name: str) -> bool:

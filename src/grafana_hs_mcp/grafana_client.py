@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import copy
+import json
 import logging
+import re
 import threading
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -142,6 +145,114 @@ class GrafanaClient:
         if data.get("status") != "success":
             raise RuntimeError(data.get("error") or "Prometheus query failed")
         return data
+
+    def query_cloudwatch(
+        self,
+        queries: list[dict[str, Any]],
+        start: str = "now-24h",
+        end: str = "now",
+        datasource_uid: str = "cloudwatch",
+    ) -> dict[str, Any]:
+        """Run CloudWatch Metrics or Logs targets using Grafana's AWS connection.
+
+        Preserve native Grafana frames and per-query errors, including partial
+        results. Resolve dashboard variables before passing targets here.
+        """
+        if (
+            not isinstance(datasource_uid, str)
+            or not datasource_uid.strip()
+            or "$" in datasource_uid
+        ):
+            raise ValueError("A resolved CloudWatch datasource UID is required")
+        if not isinstance(queries, list) or not 1 <= len(queries) <= 100:
+            raise ValueError("Pass between 1 and 100 CloudWatch queries")
+
+        targets = copy.deepcopy(queries)
+        refs: set[str] = set()
+        for index, target in enumerate(targets):
+            if not isinstance(target, dict):
+                raise ValueError("Each query must be a CloudWatch target object")
+
+            query_mode = target.get("queryMode", "Metrics")
+            if query_mode not in ("Metrics", "Logs"):
+                raise ValueError("Only CloudWatch Metrics and Logs queries are supported")
+            if query_mode == "Logs":
+                if not target.get("queryString") and isinstance(
+                    target.get("expression"), str
+                ):
+                    # Older Grafana Logs targets used expression for the CWLI query.
+                    target["queryString"] = target["expression"]
+                if not isinstance(target.get("queryString"), str) or not target[
+                    "queryString"
+                ].strip():
+                    raise ValueError("CloudWatch Logs queries require queryString")
+                if not isinstance(target.get("region"), str) or not target[
+                    "region"
+                ].strip():
+                    raise ValueError("CloudWatch Logs queries require a resolved region")
+
+                log_group_names = target.get("logGroupNames")
+                log_groups = target.get("logGroups")
+                if log_group_names is not None and (
+                    not isinstance(log_group_names, list)
+                    or any(
+                        not isinstance(name, str) or not name.strip()
+                        for name in log_group_names
+                    )
+                ):
+                    raise ValueError("logGroupNames must be a list of nonempty names")
+                if log_groups is not None and (
+                    not isinstance(log_groups, list)
+                    or any(
+                        not isinstance(group, dict)
+                        or not any(
+                            isinstance(group.get(key), str) and group[key].strip()
+                            for key in ("name", "arn")
+                        )
+                        for group in log_groups
+                    )
+                ):
+                    raise ValueError(
+                        "Each logGroups entry must contain a nonempty name or arn"
+                    )
+                if not log_group_names and not log_groups:
+                    raise ValueError(
+                        "CloudWatch Logs queries require logGroupNames or logGroups"
+                    )
+
+                query_language = target.setdefault("queryLanguage", "CWLI")
+                if query_language not in ("CWLI", "PPL", "SQL"):
+                    raise ValueError(
+                        "CloudWatch Logs queryLanguage must be CWLI, PPL, or SQL"
+                    )
+
+            target["datasource"] = {"type": "cloudwatch", "uid": datasource_uid}
+            ref = target.setdefault("refId", f"Q{index + 1}")
+            if not isinstance(ref, str) or not ref.strip() or ref in refs:
+                raise ValueError("Query refIds must be nonempty unique strings")
+            refs.add(ref)
+            target.setdefault("queryMode", "Metrics")
+            target.setdefault("intervalMs", 300000)
+            target.setdefault("maxDataPoints", 1440)
+            if re.search(r"\$(?:[A-Za-z_]|\{)", json.dumps(target)):
+                raise ValueError("Resolve dashboard variables before querying CloudWatch")
+
+        start_dt = parse_time(start)
+        end_dt = parse_time(end)
+        if start_dt >= end_dt:
+            raise ValueError("start must be earlier than end")
+        payload = {
+            "queries": targets,
+            "from": str(int(start_dt.timestamp() * 1000)),
+            "to": str(int(end_dt.timestamp() * 1000)),
+        }
+        data = self.request("POST", "/api/ds/query", json=payload, timeout=60).json()
+        return {
+            "from": start_dt.isoformat(),
+            "to": end_dt.isoformat(),
+            "results": data.get("results", {}),
+            **({"message": data["message"]} if "message" in data else {}),
+        }
 
     def list_dashboards(self) -> list[dict[str, Any]]:
         """List dashboards visible to the authenticated Grafana user."""
